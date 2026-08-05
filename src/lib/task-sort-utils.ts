@@ -1,4 +1,5 @@
 import type { Task, TaskSortOrder } from "./types";
+import { getDeadlineSortPriority } from "./overdue-utils";
 import { parseDeadlineTime } from "./time-utils";
 
 export const DEFAULT_TASK_SORT_ORDER: TaskSortOrder = "createdDesc";
@@ -42,9 +43,18 @@ function compareTitleAsc(a: Task, b: Task): number {
   });
 }
 
-function compareBySortOrder(a: Task, b: Task, sortOrder: TaskSortOrder): number {
+function compareBySortOrder(
+  a: Task,
+  b: Task,
+  sortOrder: TaskSortOrder,
+  now: Date,
+): number {
   switch (sortOrder) {
     case "deadlineAsc": {
+      const aPriority = getDeadlineSortPriority(a, now);
+      const bPriority = getDeadlineSortPriority(b, now);
+      if (aPriority !== bPriority) return aPriority - bPriority;
+
       const aMinutes = getDeadlineMinutes(a);
       const bMinutes = getDeadlineMinutes(b);
       if (aMinutes === null && bMinutes === null) {
@@ -66,8 +76,12 @@ function compareBySortOrder(a: Task, b: Task, sortOrder: TaskSortOrder): number 
   }
 }
 
-export function sortTasks(tasks: Task[], sortOrder: TaskSortOrder): Task[] {
-  return [...tasks].sort((a, b) => compareBySortOrder(a, b, sortOrder));
+export function sortTasks(
+  tasks: Task[],
+  sortOrder: TaskSortOrder,
+  now: Date = new Date(),
+): Task[] {
+  return [...tasks].sort((a, b) => compareBySortOrder(a, b, sortOrder, now));
 }
 
 export type TaskListStatusFilter = "すべて" | "未完了" | "完了済み";
@@ -77,24 +91,27 @@ export function sortTasksForDisplay(
   tasks: Task[],
   sortOrder: TaskSortOrder,
   statusFilter: TaskListStatusFilter,
+  now: Date = new Date(),
 ): Task[] {
   if (statusFilter === "未完了") {
     return sortTasks(
       tasks.filter((task) => !task.completed),
       sortOrder,
+      now,
     );
   }
   if (statusFilter === "完了済み") {
     return sortTasks(
       tasks.filter((task) => task.completed),
       sortOrder,
+      now,
     );
   }
 
   const incomplete = tasks.filter((task) => !task.completed);
   const complete = tasks.filter((task) => task.completed);
   return [
-    ...sortTasks(incomplete, sortOrder),
-    ...sortTasks(complete, sortOrder),
+    ...sortTasks(incomplete, sortOrder, now),
+    ...sortTasks(complete, sortOrder, now),
   ];
 }

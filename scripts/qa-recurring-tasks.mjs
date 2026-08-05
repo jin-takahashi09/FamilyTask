@@ -39,6 +39,10 @@ import {
   sortTasks,
   sortTasksForDisplay,
 } from "../src/lib/task-sort-utils.ts";
+import {
+  getTaskDeadlineDateTime,
+  isTaskOverdue,
+} from "../src/lib/overdue-utils.ts";
 
 const results = [];
 
@@ -944,6 +948,119 @@ record(
       session: { userId: "u1", activeFamilyId: "f1" },
     }).taskSortPreferences,
   ).length === 0,
+);
+
+console.log("\n## 12. 期限切れ表示");
+
+const overdueBase = {
+  ...sampleTask,
+  familyId: "f1",
+  completed: false,
+  deadlineTime: "08:00",
+};
+
+const noonAug16 = new Date(2026, 7, 16, 12, 0, 0);
+
+record(
+  "12",
+  "締切前は期限切れでない",
+  !isTaskOverdue(
+    { ...overdueBase, id: "o1", date: "2026-08-16" },
+    new Date(2026, 7, 16, 7, 59, 0),
+  ),
+);
+record(
+  "12",
+  "締切後は期限切れ",
+  isTaskOverdue(
+    { ...overdueBase, id: "o2", date: "2026-08-16" },
+    new Date(2026, 7, 16, 8, 1, 0),
+  ),
+);
+record(
+  "12",
+  "完了後は期限切れでない",
+  !isTaskOverdue(
+    { ...overdueBase, id: "o3", date: "2026-08-16", completed: true },
+    noonAug16,
+  ),
+);
+record(
+  "12",
+  "締切未設定は期限切れでない",
+  !isTaskOverdue(
+    { ...overdueBase, id: "o4", date: "2026-08-16", deadlineTime: null },
+    noonAug16,
+  ),
+);
+record(
+  "12",
+  "未来日付は期限切れでない",
+  !isTaskOverdue(
+    { ...overdueBase, id: "o5", date: "2026-08-20" },
+    noonAug16,
+  ),
+);
+
+const deadlineDt = getTaskDeadlineDateTime({
+  ...overdueBase,
+  id: "o6",
+  date: "2026-08-16",
+});
+record(
+  "12",
+  "日付と締切時刻を合成",
+  deadlineDt?.getHours() === 8 && deadlineDt?.getMinutes() === 0,
+);
+
+const overdueSortNow = new Date(2026, 7, 16, 19, 0, 0);
+const overdueSortTasks = [
+  {
+    ...overdueBase,
+    id: "od1",
+    date: "2026-08-16",
+    deadlineTime: "18:00",
+    createdAt: "2026-08-01T10:00:00.000Z",
+  },
+  {
+    ...overdueBase,
+    id: "od2",
+    date: "2026-08-16",
+    deadlineTime: "20:00",
+    createdAt: "2026-08-01T11:00:00.000Z",
+  },
+  {
+    ...overdueBase,
+    id: "od3",
+    date: "2026-08-20",
+    deadlineTime: "08:00",
+    createdAt: "2026-08-01T12:00:00.000Z",
+  },
+];
+const overdueSorted = sortTasks(overdueSortTasks, "deadlineAsc", overdueSortNow);
+record(
+  "12",
+  "締切が近い順で期限切れが先",
+  overdueSorted[0].id === "od1" && overdueSorted[1].id === "od2",
+);
+record(
+  "12",
+  "未来日付は期限切れより後",
+  overdueSorted[2].id === "od3",
+);
+
+const recurringOverdue = {
+  ...overdueBase,
+  id: "or1",
+  date: "2026-08-16",
+  repeatType: "weekly",
+  repeatWeekday: 0,
+  recurrenceGroupId: "rg1",
+};
+record(
+  "12",
+  "繰り返しタスクも期限切れ判定",
+  isTaskOverdue(recurringOverdue, noonAug16),
 );
 
 const failed = results.filter((r) => !r.pass);

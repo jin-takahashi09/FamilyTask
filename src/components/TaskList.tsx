@@ -1,13 +1,25 @@
 "use client";
 
 import { useState } from "react";
-import { ArrowRight, Check, Clock, ListChecks, Pencil, Repeat, Trash2 } from "lucide-react";
+import {
+  AlertTriangle,
+  ArrowRight,
+  Check,
+  Clock,
+  ListChecks,
+  Pencil,
+  Repeat,
+  Trash2,
+} from "lucide-react";
 import { useApp } from "@/context/AppProvider";
 import { TaskForm } from "@/components/TaskForm";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { RecurringDeleteDialog } from "@/components/RecurringDeleteDialog";
 import { UserAvatar } from "@/components/UserAvatar";
+import { useNowMinute } from "@/hooks/useNowMinute";
 import { getRepeatLabel } from "@/lib/recurrence-utils";
+import { isTaskOverdue } from "@/lib/overdue-utils";
+import { formatDeadlineTimeDisplay } from "@/lib/time-utils";
 import { getUserInitials, getUserLabel } from "@/lib/user-utils";
 import { shouldShowMemberFlow } from "@/lib/task-utils";
 import {
@@ -73,6 +85,7 @@ export function TaskList({
     taskSortOrder,
     setTaskSortOrder,
   } = useApp();
+  const now = useNowMinute();
   const [statusFilter, setStatusFilter] =
     useState<(typeof STATUS_FILTERS)[number]>("未完了");
   const [editingTaskId, setEditingTaskId] = useState<string | null>(null);
@@ -84,6 +97,7 @@ export function TaskList({
         tasks,
         taskSortOrder,
         statusFilter as TaskListStatusFilter,
+        now,
       )
     : tasks.filter((t) => {
         if (statusFilter === "未完了") return !t.completed;
@@ -241,6 +255,9 @@ export function TaskList({
             );
           }
 
+          const overdue = !task.completed && isTaskOverdue(task, now);
+          const deadlineLabel = formatDeadlineTimeDisplay(task.deadlineTime);
+
           return (
             <li
               key={task.id}
@@ -250,6 +267,15 @@ export function TaskList({
                   : "border-amber-100/90 shadow-sm"
               }`}
             >
+              {overdue && (
+                <span className="inline-flex w-fit items-center gap-1.5 rounded-lg bg-rose-100 px-2 py-0.5 text-[10px] font-extrabold tracking-wide text-rose-700">
+                  <span
+                    className="h-1.5 w-1.5 shrink-0 rounded-full bg-rose-500"
+                    aria-hidden
+                  />
+                  期限切れ
+                </span>
+              )}
               <div className="flex items-start justify-between gap-3">
                 <div className="flex items-start gap-3.5">
                   <button
@@ -312,11 +338,24 @@ export function TaskList({
                 {renderMemberSection(task)}
                 <div className="flex flex-wrap items-center gap-2">
                   <span className="shrink-0 whitespace-nowrap font-bold text-amber-800/80">
-                    締切時間:
+                    締切:
                   </span>
-                  <span className="flex items-center gap-1.5 rounded-lg border border-orange-200 bg-white px-2.5 py-1 font-bold text-orange-600 shadow-xs">
-                    <Clock className="h-3 w-3" />
-                    <span>{task.deadlineTime || "指定なし"}</span>
+                  <span
+                    className={`flex items-center gap-1.5 rounded-lg border px-2.5 py-1 font-bold shadow-xs ${
+                      overdue
+                        ? "border-rose-200 bg-rose-50 text-rose-700"
+                        : "border-orange-200 bg-white text-orange-600"
+                    }`}
+                  >
+                    {overdue ? (
+                      <AlertTriangle className="h-3 w-3 shrink-0" aria-hidden />
+                    ) : (
+                      <Clock className="h-3 w-3 shrink-0" aria-hidden />
+                    )}
+                    <span>
+                      {deadlineLabel}
+                      {overdue ? "（期限切れ）" : ""}
+                    </span>
                   </span>
                   {task.alarmEnabled && task.deadlineTime && (
                     <span className="rounded-lg bg-amber-100 px-2 py-1 text-[10px] font-bold text-amber-800">
