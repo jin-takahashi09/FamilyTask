@@ -8,7 +8,8 @@
     "start": "next start",
     "lint": "eslint",
     "qa:multi-group": "node scripts/qa-multi-group.mjs",
-    "qa:migration": "npx tsx scripts/qa-migration.mjs"
+    "qa:migration": "npx tsx scripts/qa-migration.mjs",
+    "qa:recurring-tasks": "npx tsx scripts/qa-recurring-tasks.mjs"
   },
   "dependencies": {
     "date-fns": "^4.4.0",

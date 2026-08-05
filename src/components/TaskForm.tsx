@@ -9,7 +9,14 @@ import {
   getTaskMemberIds,
   type TaskKind,
 } from "@/lib/task-utils";
-import type { Task } from "@/lib/types";
+import {
+  REPEAT_DROPDOWN_OPTIONS,
+  getRepeatOptionLabel,
+  repeatSelectionToValue,
+  validateRepeatEndDate,
+  valueToRepeatSelection,
+} from "@/lib/recurrence-utils";
+import type { RepeatType, Task } from "@/lib/types";
 import { VoiceInputButton } from "./VoiceInputButton";
 
 type TaskFormProps = {
@@ -42,6 +49,8 @@ export function TaskForm({
   const { addTask, updateTask, currentUser, getOtherFamilyMembers } = useApp();
   const isEdit = Boolean(task);
   const [open, setOpen] = useState(isEdit);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [formError, setFormError] = useState("");
 
   const currentUserId = currentUser?.id ?? "";
   const familyMembers = getOtherFamilyMembers();
@@ -64,6 +73,15 @@ export function TaskForm({
   const [notifyOnComplete, setNotifyOnComplete] = useState(
     task?.notifyOnComplete ?? false,
   );
+  const [repeatType, setRepeatType] = useState<RepeatType>(
+    task?.repeatType ?? "none",
+  );
+  const [repeatWeekday, setRepeatWeekday] = useState<number | null>(
+    task?.repeatWeekday ?? null,
+  );
+  const [repeatEndDate, setRepeatEndDate] = useState(
+    task?.repeatEndDate ?? "",
+  );
 
   const resolvedFamilyAssigneeId =
     familyAssigneeId || familyMembers[0]?.id || "";
@@ -84,6 +102,10 @@ export function TaskForm({
     setDeadlineTime("");
     setAlarmEnabled(true);
     setNotifyOnComplete(false);
+    setRepeatType("none");
+    setRepeatWeekday(null);
+    setRepeatEndDate("");
+    setFormError("");
   };
 
   const handleClose = () => {
@@ -97,34 +119,68 @@ export function TaskForm({
 
   const handleSubmit = (e: FormEvent) => {
     e.preventDefault();
-    if (!title.trim() || !currentUserId) return;
+    if (isSubmitting || !title.trim() || !currentUserId) return;
 
     if (taskKind === "family" && !resolvedFamilyAssigneeId) return;
 
-    const memberIds = getTaskMemberIds(
-      taskKind,
-      currentUserId,
-      resolvedFamilyAssigneeId,
-    );
+    if (!isEdit && repeatType !== "none") {
+      const endError = validateRepeatEndDate(
+        dateKey,
+        repeatEndDate.trim() || null,
+      );
+      if (endError) {
+        setFormError(endError);
+        return;
+      }
+    }
 
-    const payload = {
-      date: dateKey,
-      title: title.trim(),
-      requesterId: memberIds.requesterId,
-      assigneeId: memberIds.assigneeId,
-      deadlineTime: deadlineTime || null,
-      completed: task?.completed ?? false,
-      alarmEnabled,
-      notifyOnComplete: taskKind === "family" ? notifyOnComplete : false,
-    };
+    setFormError("");
+    setIsSubmitting(true);
 
-    if (isEdit && task) {
-      updateTask(task.id, payload);
-      onSaved?.();
-    } else {
-      addTask(payload);
-      resetForm();
-      setOpen(false);
+    try {
+      const memberIds = getTaskMemberIds(
+        taskKind,
+        currentUserId,
+        resolvedFamilyAssigneeId,
+      );
+
+      if (isEdit && task) {
+        updateTask(task.id, {
+          title: title.trim(),
+          requesterId: memberIds.requesterId,
+          assigneeId: memberIds.assigneeId,
+          deadlineTime: deadlineTime || null,
+          alarmEnabled,
+          notifyOnComplete: taskKind === "family" ? notifyOnComplete : false,
+        });
+        onSaved?.();
+      } else {
+        const success = addTask({
+          date: dateKey,
+          title: title.trim(),
+          requesterId: memberIds.requesterId,
+          assigneeId: memberIds.assigneeId,
+          deadlineTime: deadlineTime || null,
+          completed: false,
+          alarmEnabled,
+          notifyOnComplete: taskKind === "family" ? notifyOnComplete : false,
+          repeatType,
+          repeatWeekday,
+          repeatEndDate: repeatEndDate.trim() || null,
+        });
+
+        if (!success) {
+          setFormError("タスクを作成できませんでした。入力内容を確認してください。");
+          return;
+        }
+
+        resetForm();
+        setOpen(false);
+      }
+    } catch {
+      setFormError("タスクの保存中にエラーが発生しました。");
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
@@ -157,6 +213,12 @@ export function TaskForm({
           <X className="h-4 w-4" />
         </button>
       </div>
+
+      {isEdit && task?.recurrenceGroupId && (
+        <p className="mb-4 text-xs font-bold text-amber-700/80">
+          繰り返しタスクの1件です
+        </p>
+      )}
 
       <form onSubmit={handleSubmit} className="flex flex-col gap-4">
         <div>
@@ -227,6 +289,70 @@ export function TaskForm({
           </div>
         </div>
 
+        {!isEdit && (
+          <div className="flex flex-col gap-3">
+            <div>
+              <label
+                htmlFor="repeat-type"
+                className="mb-1 block text-xs font-bold text-slate-700"
+              >
+                繰り返し
+              </label>
+              <select
+                id="repeat-type"
+                value={repeatSelectionToValue({ repeatType, repeatWeekday })}
+                onChange={(e) => {
+                  const next = valueToRepeatSelection(e.target.value);
+                  setRepeatType(next.repeatType);
+                  setRepeatWeekday(next.repeatWeekday);
+                  if (next.repeatType === "none") {
+                    setRepeatEndDate("");
+                  }
+                  setFormError("");
+                }}
+                className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm font-bold focus:border-amber-400 focus:outline-none focus:ring-2 focus:ring-amber-100"
+              >
+                {REPEAT_DROPDOWN_OPTIONS.map((option) => {
+                  const value =
+                    option.kind === "weekly"
+                      ? `weekly:${option.weekday}`
+                      : option.kind;
+                  return (
+                    <option key={value} value={value}>
+                      {getRepeatOptionLabel(option)}
+                    </option>
+                  );
+                })}
+              </select>
+            </div>
+
+            {repeatType !== "none" && (
+              <div>
+                <label
+                  htmlFor="repeat-end-date"
+                  className="mb-1 block text-xs font-bold text-slate-700"
+                >
+                  繰り返し終了日
+                  <span className="ml-1 font-medium text-slate-400">
+                    （任意・未設定時は1年先まで）
+                  </span>
+                </label>
+                <input
+                  id="repeat-end-date"
+                  type="date"
+                  value={repeatEndDate}
+                  min={dateKey}
+                  onChange={(e) => {
+                    setRepeatEndDate(e.target.value);
+                    setFormError("");
+                  }}
+                  className="w-full max-w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm font-bold focus:border-amber-400 focus:outline-none focus:ring-2 focus:ring-amber-100"
+                />
+              </div>
+            )}
+          </div>
+        )}
+
         {taskKind === "family" && (
           <div className="rounded-2xl border border-amber-100 bg-amber-50/50 p-3">
             <label className="mb-1 block text-xs font-bold text-amber-900">
@@ -277,23 +403,29 @@ export function TaskForm({
           )}
         </div>
 
+        {formError && (
+          <p className="text-xs font-bold text-rose-500">{formError}</p>
+        )}
+
         <div className="flex items-center justify-end gap-2 border-t border-slate-100 pt-2">
           <button
             type="button"
             onClick={handleClose}
-            className="rounded-xl px-4 py-2 text-xs font-bold text-slate-500 hover:bg-slate-100"
+            disabled={isSubmitting}
+            className="rounded-xl px-4 py-2 text-xs font-bold text-slate-500 hover:bg-slate-100 disabled:opacity-50"
           >
             キャンセル
           </button>
           <button
             type="submit"
             disabled={
-              taskKind === "family" &&
-              (familyMembers.length === 0 || !resolvedFamilyAssigneeId)
+              isSubmitting ||
+              (taskKind === "family" &&
+                (familyMembers.length === 0 || !resolvedFamilyAssigneeId))
             }
             className="rounded-xl bg-gradient-to-r from-amber-400 to-orange-400 px-5 py-2.5 text-sm font-bold text-white shadow-md shadow-amber-200 hover:from-amber-500 hover:to-orange-500 disabled:cursor-not-allowed disabled:opacity-50"
           >
-            {isEdit ? "保存する" : "追加する"}
+            {isSubmitting ? "保存中..." : isEdit ? "保存する" : "追加する"}
           </button>
         </div>
       </form>

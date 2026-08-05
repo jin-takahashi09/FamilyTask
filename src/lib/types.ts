@@ -22,6 +22,8 @@ export type FamilyMembership = {
   joinedAt: string;
 };
 
+export type RepeatType = "none" | "daily" | "weekly" | "monthly" | "yearly";
+
 export type Task = {
   id: string;
   familyId: string;
@@ -34,6 +36,11 @@ export type Task = {
   alarmEnabled: boolean;
   notifyOnComplete: boolean;
   createdAt: string;
+  repeatType: RepeatType;
+  /** 0=日曜 … 6=土曜。weekly のときのみ使用 */
+  repeatWeekday: number | null;
+  repeatEndDate: string | null;
+  recurrenceGroupId: string | null;
 };
 
 export type Session = {

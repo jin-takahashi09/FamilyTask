@@ -1,10 +1,12 @@
 "use client";
 
 import { useState } from "react";
-import { ArrowRight, Check, Clock, ListChecks, Pencil, Trash2 } from "lucide-react";
+import { ArrowRight, Check, Clock, ListChecks, Pencil, Repeat, Trash2 } from "lucide-react";
 import { useApp } from "@/context/AppProvider";
 import { TaskForm } from "@/components/TaskForm";
+import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { UserAvatar } from "@/components/UserAvatar";
+import { getRepeatLabel } from "@/lib/recurrence-utils";
 import { getUserInitials, getUserLabel } from "@/lib/user-utils";
 import { shouldShowMemberFlow } from "@/lib/task-utils";
 import type { Task } from "@/lib/types";
@@ -55,6 +57,7 @@ export function TaskList({
   const [statusFilter, setStatusFilter] =
     useState<(typeof STATUS_FILTERS)[number]>("未完了");
   const [editingTaskId, setEditingTaskId] = useState<string | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<Task | null>(null);
 
   const filteredTasks = tasks.filter((t) => {
     if (statusFilter === "未完了") return !t.completed;
@@ -197,7 +200,15 @@ export function TaskList({
                         : "text-slate-800"
                     }`}
                   >
-                    {task.title}
+                    <span className="inline-flex flex-wrap items-center gap-x-2 gap-y-1">
+                      <span>{task.title}</span>
+                      {task.repeatType !== "none" && (
+                        <span className="inline-flex items-center gap-0.5 text-xs font-bold text-slate-500">
+                          <Repeat className="h-3 w-3 shrink-0" aria-hidden />
+                          {getRepeatLabel(task.repeatType, task.repeatWeekday)}
+                        </span>
+                      )}
+                    </span>
                   </h4>
                 </div>
                 <div className="flex shrink-0 items-center gap-0.5">
@@ -211,7 +222,13 @@ export function TaskList({
                   </button>
                   <button
                     type="button"
-                    onClick={() => deleteTask(task.id)}
+                    onClick={() => {
+                      if (task.recurrenceGroupId) {
+                        setDeleteTarget(task);
+                      } else {
+                        deleteTask(task.id);
+                      }
+                    }}
                     className="p-1.5 text-slate-300 transition-colors hover:text-rose-500"
                     aria-label="削除"
                   >
@@ -248,7 +265,21 @@ export function TaskList({
   }
 
   return (
-    <div className="flex flex-grow flex-col gap-4 rounded-3xl border border-slate-100 bg-white p-5 shadow-sm sm:p-6">
+    <>
+      <ConfirmDialog
+        open={Boolean(deleteTarget)}
+        title="タスクを削除"
+        message="このタスクだけを削除します"
+        confirmLabel="削除する"
+        onConfirm={() => {
+          if (deleteTarget) {
+            deleteTask(deleteTarget.id);
+          }
+          setDeleteTarget(null);
+        }}
+        onCancel={() => setDeleteTarget(null)}
+      />
+      <div className="flex flex-grow flex-col gap-4 rounded-3xl border border-slate-100 bg-white p-5 shadow-sm sm:p-6">
       <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 pb-4">
         <div className="flex items-center gap-2.5">
           <ListChecks className="h-5 w-5 text-amber-500" />
@@ -279,5 +310,6 @@ export function TaskList({
 
       {listContent}
     </div>
+    </>
   );
 }

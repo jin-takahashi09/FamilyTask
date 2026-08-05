@@ -85,6 +85,36 @@ record("重複membershipでクラッシュしない", legacy4.session?.activeFam
 const resolved = resolveActiveFamilyId(userId, memberships, null, "f2");
 record("savedPreference優先", resolved === "f2");
 
+const legacyTasks = migrateState({
+  users: [user],
+  families: [family1],
+  memberships: [{ id: "m1", familyId: "f1", userId, role: "owner", joinedAt: "2026-01-01" }],
+  tasks: [
+    {
+      id: "legacy-task",
+      familyId: "f1",
+      date: "2026-08-05",
+      title: "旧タスク",
+      requesterId: null,
+      assigneeId: userId,
+      deadlineTime: null,
+      completed: false,
+      alarmEnabled: true,
+      notifyOnComplete: false,
+      createdAt: "2026-01-01T00:00:00.000Z",
+    },
+  ],
+  session: { userId, activeFamilyId: "f1" },
+});
+const t = legacyTasks.tasks[0];
+record(
+  "旧タスクにrepeat項目補完",
+  t.repeatType === "none" &&
+    t.repeatEndDate === null &&
+    t.recurrenceGroupId === null &&
+    t.repeatWeekday === null,
+);
+
 const failed = results.filter((r) => !r.pass);
 console.log(`\nMigration: ${results.length - failed.length}/${results.length} passed\n`);
 process.exit(failed.length ? 1 : 0);

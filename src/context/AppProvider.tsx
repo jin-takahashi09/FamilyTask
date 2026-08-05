@@ -24,6 +24,7 @@ import {
   resolveActiveFamilyId,
   sortMembersForDisplay,
 } from "@/lib/family-utils";
+import { generateRecurringDates } from "@/lib/recurrence-utils";
 import type {
   AppState,
   FamilyGroup,
@@ -70,7 +71,7 @@ type AppContextValue = {
   regenerateInviteCode: () => FamilyActionResult & { inviteCode?: string };
   isFamilyMember: (userId: string) => boolean;
   getOtherFamilyMembers: () => UserProfile[];
-  addTask: (task: Omit<Task, "id" | "createdAt" | "familyId">) => void;
+  addTask: (task: Omit<Task, "id" | "createdAt" | "familyId" | "recurrenceGroupId">) => boolean;
   updateTask: (id: string, updates: Partial<Task>) => void;
   deleteTask: (id: string) => void;
   getTasksByDate: (dateKey: string) => Task[];
@@ -711,21 +712,40 @@ export function AppProvider({ children }: { children: ReactNode }) {
   }, [state.users, state.memberships, currentFamilyId, currentUser]);
 
   const addTask = useCallback(
-    (task: Omit<Task, "id" | "createdAt" | "familyId">) => {
-      if (!currentFamilyId) return;
+    (
+      task: Omit<Task, "id" | "createdAt" | "familyId" | "recurrenceGroupId">,
+    ): boolean => {
+      if (!currentFamilyId) return false;
+
+      const dates = generateRecurringDates({
+        startDate: task.date,
+        repeatType: task.repeatType,
+        repeatEndDate: task.repeatEndDate,
+        repeatWeekday: task.repeatWeekday,
+      });
+
+      if (dates.length === 0) return false;
+
+      const recurrenceGroupId =
+        task.repeatType === "none" ? null : crypto.randomUUID();
+      const createdAt = new Date().toISOString();
+
+      const newTasks: Task[] = dates.map((date) => ({
+        ...task,
+        date,
+        familyId: currentFamilyId,
+        id: crypto.randomUUID(),
+        recurrenceGroupId,
+        createdAt,
+        completed: false,
+      }));
 
       updateState((prev) => ({
         ...prev,
-        tasks: [
-          ...prev.tasks,
-          {
-            ...task,
-            familyId: currentFamilyId,
-            id: crypto.randomUUID(),
-            createdAt: new Date().toISOString(),
-          },
-        ],
+        tasks: [...prev.tasks, ...newTasks],
       }));
+
+      return true;
     },
     [currentFamilyId, updateState],
   );

@@ -2,10 +2,13 @@ import type {
   AppState,
   FamilyGroup,
   FamilyMembership,
+  RepeatType,
   Task,
   UserProfile,
 } from "./types";
 import { resolveActiveFamilyId, sanitizeMemberships } from "./family-utils";
+import { parseDateKey } from "./date-utils";
+import { getDay } from "date-fns";
 
 export const STORAGE_KEY = "family-task-app";
 
@@ -74,6 +77,34 @@ function migrateMemberships(raw: LegacyState): FamilyMembership[] {
     }));
 }
 
+function normalizeRepeatType(value: unknown): RepeatType {
+  if (
+    value === "daily" ||
+    value === "weekly" ||
+    value === "monthly" ||
+    value === "yearly"
+  ) {
+    return value;
+  }
+  return "none";
+}
+
+function normalizeRepeatWeekday(
+  value: unknown,
+  repeatType: RepeatType,
+  date: string,
+): number | null {
+  if (repeatType !== "weekly") return null;
+  if (typeof value === "number" && value >= 0 && value <= 6) {
+    return value;
+  }
+  try {
+    return getDay(parseDateKey(date));
+  } catch {
+    return 0;
+  }
+}
+
 function migrateTasks(raw: LegacyState): Task[] {
   if (!Array.isArray(raw.tasks)) return [];
   return raw.tasks
@@ -90,6 +121,16 @@ function migrateTasks(raw: LegacyState): Task[] {
       alarmEnabled: t.alarmEnabled !== false,
       notifyOnComplete: Boolean(t.notifyOnComplete),
       createdAt: (t.createdAt as string) ?? new Date().toISOString(),
+      repeatType: normalizeRepeatType(t.repeatType),
+      repeatWeekday: normalizeRepeatWeekday(
+        t.repeatWeekday,
+        normalizeRepeatType(t.repeatType),
+        t.date as string,
+      ),
+      repeatEndDate:
+        typeof t.repeatEndDate === "string" ? t.repeatEndDate : null,
+      recurrenceGroupId:
+        typeof t.recurrenceGroupId === "string" ? t.recurrenceGroupId : null,
     }));
 }
 
