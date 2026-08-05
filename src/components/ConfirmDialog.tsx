@@ -10,6 +10,8 @@ type ConfirmDialogProps = {
   confirmLabel?: string;
   cancelLabel?: string;
   danger?: boolean;
+  /** When danger is true, use text-style confirm instead of a solid button. */
+  dangerTextOnly?: boolean;
   onConfirm: () => void;
   onCancel: () => void;
 };
@@ -21,6 +23,7 @@ export function ConfirmDialog({
   confirmLabel = "確認",
   cancelLabel = "キャンセル",
   danger = true,
+  dangerTextOnly = false,
   onConfirm,
   onCancel,
 }: ConfirmDialogProps) {
@@ -83,10 +86,12 @@ export function ConfirmDialog({
           <button
             type="button"
             onClick={onConfirm}
-            className={`flex-1 rounded-xl px-4 py-2.5 text-sm font-bold text-white ${
-              danger
-                ? "bg-rose-500 hover:bg-rose-600"
-                : "bg-emerald-500 hover:bg-emerald-600"
+            className={`flex-1 rounded-xl px-4 py-2.5 text-sm font-bold ${
+              danger && dangerTextOnly
+                ? "text-rose-600 hover:bg-rose-50"
+                : danger
+                  ? "bg-rose-500 text-white hover:bg-rose-600"
+                  : "bg-emerald-500 text-white hover:bg-emerald-600"
             }`}
           >
             {confirmLabel}

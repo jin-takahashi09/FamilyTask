@@ -17,6 +17,7 @@ import {
   valueToRepeatSelection,
 } from "@/lib/recurrence-utils";
 import type { RepeatType, Task } from "@/lib/types";
+import { DeadlineTimeField } from "@/components/DeadlineTimePicker";
 import { VoiceInputButton } from "./VoiceInputButton";
 
 type TaskFormProps = {
@@ -68,7 +69,9 @@ export function TaskForm({
     }
     return familyMembers[0]?.id ?? "";
   });
-  const [deadlineTime, setDeadlineTime] = useState(task?.deadlineTime ?? "");
+  const [deadlineTime, setDeadlineTime] = useState<string | null>(
+    task?.deadlineTime ?? null,
+  );
   const [alarmEnabled, setAlarmEnabled] = useState(task?.alarmEnabled ?? true);
   const [notifyOnComplete, setNotifyOnComplete] = useState(
     task?.notifyOnComplete ?? false,
@@ -99,7 +102,7 @@ export function TaskForm({
     setTitle("");
     setTaskKind("personal");
     setFamilyAssigneeId("");
-    setDeadlineTime("");
+    setDeadlineTime(null);
     setAlarmEnabled(true);
     setNotifyOnComplete(false);
     setRepeatType("none");
@@ -149,7 +152,7 @@ export function TaskForm({
           title: title.trim(),
           requesterId: memberIds.requesterId,
           assigneeId: memberIds.assigneeId,
-          deadlineTime: deadlineTime || null,
+          deadlineTime,
           alarmEnabled,
           notifyOnComplete: taskKind === "family" ? notifyOnComplete : false,
         });
@@ -160,7 +163,7 @@ export function TaskForm({
           title: title.trim(),
           requesterId: memberIds.requesterId,
           assigneeId: memberIds.assigneeId,
-          deadlineTime: deadlineTime || null,
+          deadlineTime,
           completed: false,
           alarmEnabled,
           notifyOnComplete: taskKind === "family" ? notifyOnComplete : false,
@@ -277,14 +280,16 @@ export function TaskForm({
             />
           </div>
           <div>
-            <label className="mb-1 block text-xs font-bold text-slate-700">
+            <label
+              htmlFor="deadline-time-field"
+              className="mb-1 block text-xs font-bold text-slate-700"
+            >
               締切時間
             </label>
-            <input
-              type="time"
+            <DeadlineTimeField
+              id="deadline-time-field"
               value={deadlineTime}
-              onChange={(e) => setDeadlineTime(e.target.value)}
-              className="w-full rounded-xl border border-slate-200 px-3 py-2 text-xs font-bold focus:border-amber-400 focus:outline-none"
+              onChange={setDeadlineTime}
             />
           </div>
         </div>

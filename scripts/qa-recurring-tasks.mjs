@@ -11,6 +11,13 @@ import {
 } from "../src/lib/recurrence-utils.ts";
 import { parseDateKey } from "../src/lib/date-utils.ts";
 import { getDay } from "date-fns";
+import {
+  draftFromConfirmed,
+  draftPartsToTime,
+  formatDeadlineTime,
+  formatDeadlineTimeDisplay,
+  parseDeadlineTime,
+} from "../src/lib/time-utils.ts";
 
 const results = [];
 
@@ -335,6 +342,73 @@ record(
   "6",
   "1件削除しても他は残る",
   remaining.length === 1 && remaining[0].id === "b",
+);
+
+console.log("\n## 7. 締切時間");
+
+record(
+  "7",
+  "未設定は指定なし表示",
+  formatDeadlineTimeDisplay(null) === "指定なし",
+);
+record(
+  "7",
+  "00:00",
+  formatDeadlineTimeDisplay("00:00") === "00:00" &&
+    parseDeadlineTime("00:00")?.hour === 0,
+);
+record(
+  "7",
+  "23:59",
+  formatDeadlineTimeDisplay("23:59") === "23:59" &&
+    parseDeadlineTime("23:59")?.minute === 59,
+);
+record(
+  "7",
+  "format/parse往復",
+  formatDeadlineTime(9, 30) === "09:30" &&
+    parseDeadlineTime("09:30")?.hour === 9 &&
+    parseDeadlineTime("09:30")?.minute === 30,
+);
+
+console.log("\n## 8. 締切時間 draft");
+
+function simulatePickerFlow(confirmed, draftParts, action) {
+  let deadlineTime = confirmed;
+  const draft = { ...draftParts };
+  if (action === "complete") {
+    deadlineTime = draftPartsToTime(draft);
+  }
+  return deadlineTime;
+}
+
+record(
+  "8",
+  "未設定→仮変更→キャンセルで未設定のまま",
+  simulatePickerFlow(null, { hour: 8, minute: 10 }, "cancel") === null,
+);
+record(
+  "8",
+  "設定済→仮変更→キャンセルで維持",
+  simulatePickerFlow("08:10", { hour: 10, minute: 10 }, "cancel") === "08:10",
+);
+record(
+  "8",
+  "完了でだけ反映",
+  simulatePickerFlow("08:10", { hour: 10, minute: 10 }, "complete") ===
+    "10:10",
+);
+record(
+  "8",
+  "未設定open時はdraftFromConfirmedで初期値",
+  draftFromConfirmed(null).hour >= 0 &&
+    draftFromConfirmed(null).minute >= 0,
+);
+record(
+  "8",
+  "設定済open時はconfirmedをdraftへ",
+  draftFromConfirmed("08:10").hour === 8 &&
+    draftFromConfirmed("08:10").minute === 10,
 );
 
 const failed = results.filter((r) => !r.pass);
