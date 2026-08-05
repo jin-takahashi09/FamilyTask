@@ -316,6 +316,69 @@ async function main() {
 
     record("3", "参加後activeFamilyId更新", state.session?.activeFamilyId === schoolId);
 
+    console.log("\n## 3b. カレンダー追加UI");
+    await logout(page);
+    await login(page, EMAIL_A);
+    await completeProfileIfNeeded(page, "ユーザーA");
+    await switchToFamily(page, "高橋家");
+    const calendarTodayKey = new Date().toISOString().slice(0, 10);
+
+    await page.goto(`${BASE}/day/${calendarTodayKey}?mine=1`);
+    await page.waitForTimeout(500);
+    const ownAddVisible = await page
+      .getByRole("button", { name: "新規タスクの追加" })
+      .isVisible();
+    record("3b", "自分の詳細画面では追加ボタン表示", ownAddVisible);
+
+    await page.goto(`${BASE}/day/${calendarTodayKey}?user=${userBId}`);
+    await page.waitForTimeout(500);
+    const otherAddVisible = await page
+      .getByRole("button", { name: "新規タスクの追加" })
+      .isVisible()
+      .catch(() => false);
+    record("3b", "他メンバー詳細画面では追加ボタン非表示", !otherAddVisible);
+
+    const addBlocked = await page.evaluate(
+      ({ targetUserId }) => {
+        const raw = localStorage.getItem("family-task-app");
+        if (!raw) return false;
+        const appState = JSON.parse(raw);
+        const currentUserId = appState.session?.userId;
+        const task = {
+          requesterId: null,
+          assigneeId: targetUserId,
+        };
+        if (task.requesterId === null) {
+          return task.assigneeId !== currentUserId;
+        }
+        return task.requesterId !== currentUserId;
+      },
+      { targetUserId: userBId },
+    );
+    record("3b", "他メンバー画面からaddTask不可", addBlocked);
+
+    await page.goto(
+      `${BASE}/day/${calendarTodayKey}?user=${userBId}&add=1&open=1`,
+    );
+    await page.waitForTimeout(500);
+    const formAfterHack = await page
+      .getByRole("button", { name: "新規タスクの追加" })
+      .isVisible()
+      .catch(() => false);
+    const submitVisible = await page
+      .getByRole("button", { name: "追加する" })
+      .isVisible()
+      .catch(() => false);
+    record(
+      "3b",
+      "URL書き換えでもフォーム非表示",
+      !formAfterHack && !submitVisible,
+    );
+
+    await logout(page);
+    await login(page, EMAIL_B);
+    await completeProfileIfNeeded(page, LONG_USER_NAME);
+
     // === 4. User B leaves takahashi ===
     console.log("\n## 4. 一般メンバー退出 (User B)");
     await switchToFamily(page, "高橋家");

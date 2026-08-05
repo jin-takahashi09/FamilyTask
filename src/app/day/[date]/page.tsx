@@ -1,12 +1,13 @@
 "use client";
 
-import { Suspense, use, useEffect } from "react";
+import { Suspense, use, useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { ArrowLeft } from "lucide-react";
 import { AuthGuard } from "@/components/AuthGuard";
 import { TaskForm } from "@/components/TaskForm";
 import { TaskList } from "@/components/TaskList";
+import { TaskCreateUndoToast } from "@/components/TaskCreateUndoToast";
 import { useApp } from "@/context/AppProvider";
 import { formatDayLabel, parseDateKey } from "@/lib/date-utils";
 import { isTaskForUser } from "@/lib/task-utils";
@@ -16,16 +17,30 @@ type DayPageProps = {
   params: Promise<{ date: string }>;
 };
 
+type UndoNotice = {
+  count: number;
+  recurrenceGroupId: string;
+};
+
 function DayPageContent({ dateKey }: { dateKey: string }) {
-  const { getTasksByDate, getUserById, currentUser, isFamilyMember } = useApp();
+  const {
+    getTasksByDate,
+    getUserById,
+    currentUser,
+    isFamilyMember,
+    activeFamilyId,
+    deleteRecurringTaskSeries,
+  } = useApp();
   const router = useRouter();
   const searchParams = useSearchParams();
   const userId = searchParams.get("user");
   const mineOnly = searchParams.get("mine") === "1";
   const date = parseDateKey(dateKey);
+  const [undoNotice, setUndoNotice] = useState<UndoNotice | null>(null);
 
   const user = userId ? getUserById(userId) : undefined;
-  const isSelf = userId === currentUser?.id;
+  const viewedUserId = userId ?? currentUser?.id ?? "";
+  const isOwnCalendar = viewedUserId === currentUser?.id;
 
   useEffect(() => {
     if (userId && userId !== currentUser?.id && user && !isFamilyMember(userId)) {
@@ -43,7 +58,7 @@ function DayPageContent({ dateKey }: { dateKey: string }) {
     return null;
   }
 
-  const backHref = mineOnly || isSelf ? "/" : userId ? `/member/${userId}` : "/";
+  const backHref = mineOnly || isOwnCalendar ? "/" : userId ? `/member/${userId}` : "/";
 
   return (
     <>
@@ -63,7 +78,7 @@ function DayPageContent({ dateKey }: { dateKey: string }) {
             <>
               <span className="text-sm font-bold text-slate-300">·</span>
               <p className="truncate text-sm font-bold text-slate-600">
-                {isSelf
+                {isOwnCalendar
                   ? "自分のカレンダー"
                   : `${getUserLabel(user)} のカレンダー`}
               </p>
@@ -72,14 +87,18 @@ function DayPageContent({ dateKey }: { dateKey: string }) {
         </div>
       </div>
 
-      <TaskForm
-        dateKey={dateKey}
-        defaultAssigneeId={mineOnly ? userId ?? undefined : undefined}
-      />
+      {isOwnCalendar && (
+        <TaskForm
+          dateKey={dateKey}
+          defaultAssigneeId={mineOnly ? userId ?? undefined : undefined}
+          onBulkCreated={(info) => setUndoNotice(info)}
+        />
+      )}
 
       <TaskList
         tasks={tasks}
         title="この日のタスク"
+        showAddHint={isOwnCalendar}
         emptyMessage={
           user
             ? mineOnly
@@ -88,6 +107,20 @@ function DayPageContent({ dateKey }: { dateKey: string }) {
             : "この日のタスクはまだありません"
         }
       />
+
+      {undoNotice && activeFamilyId && (
+        <TaskCreateUndoToast
+          count={undoNotice.count}
+          onUndo={() => {
+            deleteRecurringTaskSeries({
+              familyId: activeFamilyId,
+              recurrenceGroupId: undoNotice.recurrenceGroupId,
+            });
+            setUndoNotice(null);
+          }}
+          onDismiss={() => setUndoNotice(null)}
+        />
+      )}
     </>
   );
 }

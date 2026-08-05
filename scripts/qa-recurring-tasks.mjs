@@ -18,6 +18,15 @@ import {
 import { parseDateKey } from "../src/lib/date-utils.ts";
 import { getDay } from "date-fns";
 import {
+  getRecurringDeleteTargetIds,
+  isDateKeyOnOrAfter,
+  countIncompleteTasksForDate,
+  getCalendarDayStatus,
+  getCalendarDotCount,
+  matchesCalendarTask,
+  toggleTaskCompleted,
+} from "../src/lib/task-utils.ts";
+import {
   draftFromConfirmed,
   draftPartsToTime,
   formatDeadlineTime,
@@ -406,6 +415,76 @@ record(
   remaining.length === 1 && remaining[0].id === "b",
 );
 
+console.log("\n## 6b. 繰り返し削除");
+
+const seriesTasks = [
+  { id: "w1", familyId: "f1", recurrenceGroupId: "g1", date: "2026-08-05" },
+  { id: "w2", familyId: "f1", recurrenceGroupId: "g1", date: "2026-08-12" },
+  { id: "w3", familyId: "f1", recurrenceGroupId: "g1", date: "2026-08-19" },
+  { id: "w4", familyId: "f1", recurrenceGroupId: "g1", date: "2026-08-26" },
+  { id: "other", familyId: "f1", recurrenceGroupId: "g2", date: "2026-08-12" },
+  { id: "otherFamily", familyId: "f2", recurrenceGroupId: "g1", date: "2026-08-12" },
+];
+
+record(
+  "6b",
+  "1件削除",
+  getRecurringDeleteTargetIds(seriesTasks, {
+    familyId: "f1",
+    recurrenceGroupId: "g1",
+    mode: "single",
+    taskId: "w2",
+  }).join(",") === "w2",
+);
+
+record(
+  "6b",
+  "指定日以降削除",
+  getRecurringDeleteTargetIds(seriesTasks, {
+    familyId: "f1",
+    recurrenceGroupId: "g1",
+    mode: "fromDate",
+    fromDate: "2026-08-12",
+  }).join(",") === "w2,w3,w4",
+);
+
+record(
+  "6b",
+  "全件削除",
+  getRecurringDeleteTargetIds(seriesTasks, {
+    familyId: "f1",
+    recurrenceGroupId: "g1",
+    mode: "series",
+  }).length === 4,
+);
+
+record(
+  "6b",
+  "他シリーズを削除しない",
+  getRecurringDeleteTargetIds(seriesTasks, {
+    familyId: "f1",
+    recurrenceGroupId: "g1",
+    mode: "series",
+  }).includes("other") === false,
+);
+
+record(
+  "6b",
+  "他グループを削除しない",
+  getRecurringDeleteTargetIds(seriesTasks, {
+    familyId: "f1",
+    recurrenceGroupId: "g1",
+    mode: "series",
+  }).includes("otherFamily") === false,
+);
+
+record(
+  "6b",
+  "日付比較はdate-utils基準",
+  isDateKeyOnOrAfter("2026-08-12", "2026-08-12") &&
+    !isDateKeyOnOrAfter("2026-08-05", "2026-08-12"),
+);
+
 console.log("\n## 7. 締切時間");
 
 record(
@@ -471,6 +550,214 @@ record(
   "設定済open時はconfirmedをdraftへ",
   draftFromConfirmed("08:10").hour === 8 &&
     draftFromConfirmed("08:10").minute === 10,
+);
+
+function simulateDeadlineConfirm(confirmed, draft, action) {
+  let deadlineTime = confirmed;
+  if (action === "complete") {
+    deadlineTime = draftPartsToTime(draft);
+  }
+  return deadlineTime;
+}
+
+record(
+  "8",
+  "完了で08:10を反映",
+  simulateDeadlineConfirm(null, { hour: 8, minute: 10 }, "complete") ===
+    "08:10",
+);
+record(
+  "8",
+  "完了で10:10へ更新",
+  simulateDeadlineConfirm("08:10", { hour: 10, minute: 10 }, "complete") ===
+    "10:10",
+);
+record(
+  "8",
+  "キャンセルで未設定維持",
+  simulateDeadlineConfirm(null, { hour: 8, minute: 10 }, "cancel") === null,
+);
+record(
+  "8",
+  "キャンセルで08:10維持",
+  simulateDeadlineConfirm("08:10", { hour: 10, minute: 10 }, "cancel") ===
+    "08:10",
+);
+record(
+  "8",
+  "00:00を設定",
+  simulateDeadlineConfirm(null, { hour: 0, minute: 0 }, "complete") ===
+    "00:00",
+);
+record(
+  "8",
+  "23:59を設定",
+  simulateDeadlineConfirm(null, { hour: 23, minute: 59 }, "complete") ===
+    "23:59",
+);
+
+console.log("\n## 9. タスク完了");
+
+const sampleTask = {
+  id: "t1",
+  familyId: "f1",
+  date: "2026-08-16",
+  title: "テスト",
+  requesterId: null,
+  assigneeId: "u1",
+  deadlineTime: null,
+  completed: false,
+  alarmEnabled: true,
+  notifyOnComplete: false,
+  createdAt: "2026-08-16",
+  repeatType: "none",
+  repeatWeekday: null,
+  repeatEndDate: null,
+  recurrenceGroupId: null,
+};
+
+const completedTask = toggleTaskCompleted(sampleTask);
+record("9", "チェックで即完了", completedTask.completed === true);
+
+const incompleteAgain = toggleTaskCompleted(completedTask);
+record("9", "再チェックで即未完了", incompleteAgain.completed === false);
+
+const otherTask = { ...sampleTask, id: "t2", completed: false };
+const tasksAfterToggle = [toggleTaskCompleted(sampleTask), otherTask];
+record(
+  "9",
+  "他タスクの状態は変わらない",
+  tasksAfterToggle[0].completed === true && tasksAfterToggle[1].completed === false,
+);
+
+const recurringGroup = "group-complete";
+const recurringTasks = [
+  { ...sampleTask, id: "r1", date: "2026-08-05", recurrenceGroupId: recurringGroup },
+  { ...sampleTask, id: "r2", date: "2026-08-12", recurrenceGroupId: recurringGroup },
+];
+const recurringToggled = recurringTasks.map((task) =>
+  task.id === "r2" ? toggleTaskCompleted(task) : task,
+);
+record(
+  "9",
+  "繰り返しタスクの他日付は変化しない",
+  recurringToggled[0].completed === false && recurringToggled[1].completed === true,
+);
+
+record(
+  "9",
+  "未完了件数が更新される",
+  countIncompleteTasksForDate(tasksAfterToggle, "2026-08-16") === 1,
+);
+
+record(
+  "9",
+  "完了後は未完了件数0",
+  countIncompleteTasksForDate([completedTask], "2026-08-16") === 0,
+);
+
+console.log("\n## 10. カレンダー表示");
+
+const calendarTasksAll = [
+  {
+    ...sampleTask,
+    id: "c1",
+    familyId: "f1",
+    assigneeId: "u1",
+    date: "2026-08-16",
+    completed: false,
+  },
+  {
+    ...sampleTask,
+    id: "c2",
+    familyId: "f1",
+    assigneeId: "u1",
+    date: "2026-08-16",
+    completed: true,
+  },
+  {
+    ...sampleTask,
+    id: "c3",
+    familyId: "f2",
+    assigneeId: "u1",
+    date: "2026-08-16",
+    completed: false,
+  },
+  {
+    ...sampleTask,
+    id: "c4",
+    familyId: "f1",
+    assigneeId: "u2",
+    date: "2026-08-16",
+    completed: false,
+  },
+];
+
+const calendarTasks = calendarTasksAll.filter((task) => task.familyId === "f1");
+const filterU1 = { userId: "u1", assigneeOnly: true };
+const pendingDay = getCalendarDayStatus(calendarTasks, "2026-08-16", filterU1);
+record(
+  "10",
+  "未完了件数の計算",
+  pendingDay.status === "pending" && pendingDay.incompleteCount === 1,
+);
+record(
+  "10",
+  "完了済みを件数に含めない",
+  pendingDay.totalCount === 2 && pendingDay.incompleteCount === 1,
+);
+record("10", "点は最大3個", getCalendarDotCount(10) === 3);
+record("10", "未完了3件は点3個", getCalendarDotCount(3) === 3);
+
+const allDoneTasks = calendarTasks.map((task) =>
+  task.assigneeId === "u1" ? { ...task, completed: true } : task,
+);
+const allCompleteDay = getCalendarDayStatus(
+  allDoneTasks,
+  "2026-08-16",
+  filterU1,
+);
+record("10", "全件完了状態", allCompleteDay.status === "allComplete");
+
+record(
+  "10",
+  "タスク0件状態",
+  getCalendarDayStatus(calendarTasks, "2026-08-20", filterU1).status === "empty",
+);
+
+const afterComplete = toggleTaskCompleted(calendarTasks[0]);
+const updatedTasks = calendarTasks.map((task) =>
+  task.id === "c1" ? afterComplete : task,
+);
+record(
+  "10",
+  "完了操作後の件数更新",
+  getCalendarDayStatus(updatedTasks, "2026-08-16", filterU1).incompleteCount ===
+    0,
+);
+
+const afterUndo = toggleTaskCompleted(afterComplete);
+const restoredTasks = updatedTasks.map((task) =>
+  task.id === "c1" ? afterUndo : task,
+);
+record(
+  "10",
+  "未完了へ戻した後の件数更新",
+  getCalendarDayStatus(restoredTasks, "2026-08-16", filterU1).incompleteCount ===
+    1,
+);
+
+record(
+  "10",
+  "別グループを含めない",
+  calendarTasksAll.filter((task) => task.familyId === "f1").length === 3 &&
+    calendarTasksAll.filter((task) => task.familyId === "f2").length === 1,
+);
+
+record(
+  "10",
+  "別メンバーを含めない",
+  !matchesCalendarTask(calendarTasksAll[3], filterU1),
 );
 
 const failed = results.filter((r) => !r.pass);

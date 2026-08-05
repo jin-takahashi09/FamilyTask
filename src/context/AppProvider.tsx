@@ -24,8 +24,13 @@ import {
   resolveActiveFamilyId,
   sortMembersForDisplay,
 } from "@/lib/family-utils";
+import {
+  canCurrentUserCreateTask,
+  getRecurringDeleteTargetIds,
+} from "@/lib/task-utils";
 import { generateRecurringDates } from "@/lib/recurrence-utils";
 import type {
+  AddTaskResult,
   AppState,
   FamilyGroup,
   FamilyMembership,
@@ -71,9 +76,20 @@ type AppContextValue = {
   regenerateInviteCode: () => FamilyActionResult & { inviteCode?: string };
   isFamilyMember: (userId: string) => boolean;
   getOtherFamilyMembers: () => UserProfile[];
-  addTask: (task: Omit<Task, "id" | "createdAt" | "familyId" | "recurrenceGroupId">) => boolean;
+  addTask: (
+    task: Omit<Task, "id" | "createdAt" | "familyId" | "recurrenceGroupId">,
+  ) => AddTaskResult;
   updateTask: (id: string, updates: Partial<Task>) => void;
   deleteTask: (id: string) => void;
+  deleteRecurringTasksFromDate: (options: {
+    familyId: string;
+    recurrenceGroupId: string;
+    fromDate: string;
+  }) => void;
+  deleteRecurringTaskSeries: (options: {
+    familyId: string;
+    recurrenceGroupId: string;
+  }) => void;
   getTasksByDate: (dateKey: string) => Task[];
   getUserById: (id: string | null) => UserProfile | undefined;
   getMembershipForUser: (userId: string) => FamilyMembership | undefined;
@@ -714,8 +730,12 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const addTask = useCallback(
     (
       task: Omit<Task, "id" | "createdAt" | "familyId" | "recurrenceGroupId">,
-    ): boolean => {
-      if (!currentFamilyId) return false;
+    ): AddTaskResult => {
+      if (!currentFamilyId || !currentUser) return { success: false };
+
+      if (!canCurrentUserCreateTask(task, currentUser.id)) {
+        return { success: false };
+      }
 
       const dates = generateRecurringDates({
         startDate: task.date,
@@ -724,7 +744,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         repeatWeekday: task.repeatWeekday,
       });
 
-      if (dates.length === 0) return false;
+      if (dates.length === 0) return { success: false };
 
       const recurrenceGroupId =
         task.repeatType === "none" ? null : crypto.randomUUID();
@@ -745,9 +765,13 @@ export function AppProvider({ children }: { children: ReactNode }) {
         tasks: [...prev.tasks, ...newTasks],
       }));
 
-      return true;
+      return {
+        success: true,
+        createdCount: newTasks.length,
+        recurrenceGroupId,
+      };
     },
-    [currentFamilyId, updateState],
+    [currentFamilyId, currentUser, updateState],
   );
 
   const updateTask = useCallback(
@@ -776,6 +800,63 @@ export function AppProvider({ children }: { children: ReactNode }) {
           (t) => !(t.id === id && t.familyId === currentFamilyId),
         ),
       }));
+    },
+    [currentFamilyId, updateState],
+  );
+
+  const deleteRecurringTasksFromDate = useCallback(
+    ({
+      familyId,
+      recurrenceGroupId,
+      fromDate,
+    }: {
+      familyId: string;
+      recurrenceGroupId: string;
+      fromDate: string;
+    }) => {
+      if (!currentFamilyId || currentFamilyId !== familyId) return;
+
+      updateState((prev) => {
+        const deleteIds = new Set(
+          getRecurringDeleteTargetIds(prev.tasks, {
+            familyId,
+            recurrenceGroupId,
+            mode: "fromDate",
+            fromDate,
+          }),
+        );
+        return {
+          ...prev,
+          tasks: prev.tasks.filter((t) => !deleteIds.has(t.id)),
+        };
+      });
+    },
+    [currentFamilyId, updateState],
+  );
+
+  const deleteRecurringTaskSeries = useCallback(
+    ({
+      familyId,
+      recurrenceGroupId,
+    }: {
+      familyId: string;
+      recurrenceGroupId: string;
+    }) => {
+      if (!currentFamilyId || currentFamilyId !== familyId) return;
+
+      updateState((prev) => {
+        const deleteIds = new Set(
+          getRecurringDeleteTargetIds(prev.tasks, {
+            familyId,
+            recurrenceGroupId,
+            mode: "series",
+          }),
+        );
+        return {
+          ...prev,
+          tasks: prev.tasks.filter((t) => !deleteIds.has(t.id)),
+        };
+      });
     },
     [currentFamilyId, updateState],
   );
@@ -836,6 +917,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
       addTask,
       updateTask,
       deleteTask,
+      deleteRecurringTasksFromDate,
+      deleteRecurringTaskSeries,
       getTasksByDate,
       getUserById,
       getMembershipForUser,
@@ -868,6 +951,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
       addTask,
       updateTask,
       deleteTask,
+      deleteRecurringTasksFromDate,
+      deleteRecurringTaskSeries,
       getTasksByDate,
       getUserById,
       getMembershipForUser,

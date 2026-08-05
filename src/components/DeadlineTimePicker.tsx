@@ -228,6 +228,7 @@ export function DeadlineTimeField({
   );
   const triggerRef = useRef<HTMLButtonElement>(null);
   const popoverRef = useRef<HTMLDivElement>(null);
+  const mobilePickerRef = useRef<HTMLDivElement>(null);
   const [popoverStyle, setPopoverStyle] = useState({ top: 0, left: 0 });
 
   const parsedConfirmed = parseDeadlineTime(deadlineTime);
@@ -247,10 +248,10 @@ export function DeadlineTimeField({
     closePicker();
   }, []);
 
-  const handlePickerComplete = useCallback(() => {
+  const handlePickerComplete = () => {
     onChange(draftPartsToTime(draftDeadlineTime));
     closePicker();
-  }, [draftDeadlineTime, onChange]);
+  };
 
   const handleClearRequest = (event: { stopPropagation: () => void }) => {
     event.stopPropagation();
@@ -268,7 +269,7 @@ export function DeadlineTimeField({
   };
 
   useClickOutside(
-    [triggerRef, popoverRef],
+    [triggerRef, popoverRef, mobilePickerRef],
     pickerOpen && !clearConfirmOpen,
     handlePickerCancel,
   );
@@ -362,6 +363,7 @@ export function DeadlineTimeField({
 
       {pickerOpen && (
         <div
+          ref={mobilePickerRef}
           className="fixed inset-0 z-[110] flex flex-col bg-slate-50 md:hidden"
           role="dialog"
           aria-modal="true"

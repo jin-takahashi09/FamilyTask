@@ -5,6 +5,7 @@ import { ArrowRight, Check, Clock, ListChecks, Pencil, Repeat, Trash2 } from "lu
 import { useApp } from "@/context/AppProvider";
 import { TaskForm } from "@/components/TaskForm";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
+import { RecurringDeleteDialog } from "@/components/RecurringDeleteDialog";
 import { UserAvatar } from "@/components/UserAvatar";
 import { getRepeatLabel } from "@/lib/recurrence-utils";
 import { getUserInitials, getUserLabel } from "@/lib/user-utils";
@@ -17,6 +18,7 @@ type TaskListProps = {
   showFilters?: boolean;
   embedded?: boolean;
   title?: string;
+  showAddHint?: boolean;
 };
 
 const STATUS_FILTERS = ["すべて", "未完了", "完了済み"] as const;
@@ -52,12 +54,21 @@ export function TaskList({
   showFilters = true,
   embedded = false,
   title = "タスク一覧",
+  showAddHint = true,
 }: TaskListProps) {
-  const { updateTask, deleteTask, getUserById } = useApp();
+  const {
+    activeFamilyId,
+    updateTask,
+    deleteTask,
+    deleteRecurringTasksFromDate,
+    deleteRecurringTaskSeries,
+    getUserById,
+  } = useApp();
   const [statusFilter, setStatusFilter] =
     useState<(typeof STATUS_FILTERS)[number]>("未完了");
   const [editingTaskId, setEditingTaskId] = useState<string | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<Task | null>(null);
+  const [recurringDeleteOpen, setRecurringDeleteOpen] = useState(false);
 
   const filteredTasks = tasks.filter((t) => {
     if (statusFilter === "未完了") return !t.completed;
@@ -66,9 +77,10 @@ export function TaskList({
   });
 
   const handleComplete = (task: Task) => {
-    updateTask(task.id, { completed: !task.completed });
+    const nextCompleted = !task.completed;
+    updateTask(task.id, { completed: nextCompleted });
 
-    if (!task.completed && task.notifyOnComplete && task.requesterId) {
+    if (nextCompleted && task.notifyOnComplete && task.requesterId) {
       const requester = getUserById(task.requesterId);
       if (typeof window !== "undefined" && "Notification" in window) {
         if (Notification.permission === "granted") {
@@ -84,6 +96,52 @@ export function TaskList({
     const user = getUserById(id);
     if (!user) return { name: "—", initials: "?" };
     return { user, name: getUserLabel(user), initials: getUserInitials(user) };
+  };
+
+  const handleDeleteClick = (task: Task) => {
+    setDeleteTarget(task);
+    if (task.recurrenceGroupId) {
+      setRecurringDeleteOpen(true);
+    }
+  };
+
+  const closeDeleteDialogs = () => {
+    setDeleteTarget(null);
+    setRecurringDeleteOpen(false);
+  };
+
+  const handleDeleteSingle = () => {
+    if (deleteTarget) {
+      deleteTask(deleteTarget.id);
+    }
+    closeDeleteDialogs();
+  };
+
+  const handleDeleteFromDate = () => {
+    if (
+      deleteTarget?.recurrenceGroupId &&
+      activeFamilyId
+    ) {
+      deleteRecurringTasksFromDate({
+        familyId: activeFamilyId,
+        recurrenceGroupId: deleteTarget.recurrenceGroupId,
+        fromDate: deleteTarget.date,
+      });
+    }
+    closeDeleteDialogs();
+  };
+
+  const handleDeleteSeries = () => {
+    if (
+      deleteTarget?.recurrenceGroupId &&
+      activeFamilyId
+    ) {
+      deleteRecurringTaskSeries({
+        familyId: activeFamilyId,
+        recurrenceGroupId: deleteTarget.recurrenceGroupId,
+      });
+    }
+    closeDeleteDialogs();
   };
 
   const renderMemberSection = (task: Task) => {
@@ -142,7 +200,7 @@ export function TaskList({
         >
           {emptyMessage}
         </p>
-        {!embedded && (
+        {!embedded && showAddHint && (
           <p className="mt-1 text-xs text-slate-400">
             「新規タスクの追加」からタスクを作成できます
           </p>
@@ -187,7 +245,11 @@ export function TaskList({
                         ? "border-emerald-500 bg-emerald-500 text-white"
                         : "border-amber-300 bg-white hover:border-amber-500"
                     }`}
-                    aria-label={task.completed ? "未完了に戻す" : "完了にする"}
+                    aria-label={
+                      task.completed
+                        ? "タスクを未完了に戻す"
+                        : "タスクを完了にする"
+                    }
                   >
                     {task.completed && (
                       <Check className="h-3.5 w-3.5 font-bold" />
@@ -222,13 +284,7 @@ export function TaskList({
                   </button>
                   <button
                     type="button"
-                    onClick={() => {
-                      if (task.recurrenceGroupId) {
-                        setDeleteTarget(task);
-                      } else {
-                        deleteTask(task.id);
-                      }
-                    }}
+                    onClick={() => handleDeleteClick(task)}
                     className="p-1.5 text-slate-300 transition-colors hover:text-rose-500"
                     aria-label="削除"
                   >
@@ -260,56 +316,69 @@ export function TaskList({
       </ul>
     );
 
+  const deleteDialogs = (
+    <>
+      <ConfirmDialog
+        open={Boolean(deleteTarget) && !recurringDeleteOpen}
+        title="タスクを削除"
+        message="このタスクを削除します。よろしいですか？"
+        confirmLabel="削除する"
+        onConfirm={handleDeleteSingle}
+        onCancel={closeDeleteDialogs}
+      />
+      <RecurringDeleteDialog
+        open={recurringDeleteOpen && Boolean(deleteTarget)}
+        onSelectSingle={handleDeleteSingle}
+        onSelectFromDate={handleDeleteFromDate}
+        onSelectSeries={handleDeleteSeries}
+        onCancel={closeDeleteDialogs}
+      />
+    </>
+  );
+
   if (embedded) {
-    return listContent;
+    return (
+      <>
+        {deleteDialogs}
+        {listContent}
+      </>
+    );
   }
 
   return (
     <>
-      <ConfirmDialog
-        open={Boolean(deleteTarget)}
-        title="タスクを削除"
-        message="このタスクだけを削除します"
-        confirmLabel="削除する"
-        onConfirm={() => {
-          if (deleteTarget) {
-            deleteTask(deleteTarget.id);
-          }
-          setDeleteTarget(null);
-        }}
-        onCancel={() => setDeleteTarget(null)}
-      />
+      {deleteDialogs}
       <div className="flex flex-grow flex-col gap-4 rounded-3xl border border-slate-100 bg-white p-5 shadow-sm sm:p-6">
-      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 pb-4">
-        <div className="flex items-center gap-2.5">
-          <ListChecks className="h-5 w-5 text-amber-500" />
-          <h3 className="text-lg font-extrabold text-slate-800">{title}</h3>
-          <span className="rounded-full bg-amber-100 px-2.5 py-0.5 text-xs font-extrabold text-amber-800">
-            {filteredTasks.length}
-          </span>
-        </div>
-        {showFilters && (
-          <div className="flex items-center gap-1 rounded-2xl bg-slate-100/80 p-1">
-            {STATUS_FILTERS.map((cat) => (
-              <button
-                key={cat}
-                type="button"
-                onClick={() => setStatusFilter(cat)}
-                className={`rounded-xl px-3 py-1.5 text-xs font-bold transition-all ${
-                  statusFilter === cat
-                    ? "bg-amber-100 text-amber-900 shadow-xs"
-                    : "text-slate-500 hover:text-slate-800"
-                }`}
-              >
-                {cat}
-              </button>
-            ))}
+        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 pb-4">
+          <div className="flex items-center gap-2.5">
+            <ListChecks className="h-5 w-5 text-amber-500" />
+            <h3 className="text-lg font-extrabold text-slate-800">{title}</h3>
+            <span className="rounded-full bg-amber-100 px-2.5 py-0.5 text-xs font-extrabold text-amber-800">
+              {filteredTasks.length}
+            </span>
           </div>
-        )}
-      </div>
+          {showFilters && (
+            <div className="flex items-center gap-1 rounded-2xl bg-slate-100/80 p-1">
+              {STATUS_FILTERS.map((cat) => (
+                <button
+                  key={cat}
+                  type="button"
+                  onClick={() => setStatusFilter(cat)}
+                  className={`rounded-xl px-3 py-1.5 text-xs font-bold transition-all ${
+                    statusFilter === cat
+                      ? "bg-amber-100 text-amber-900 shadow-xs"
+                      : "text-slate-500 hover:text-slate-800"
+                  }`}
+                >
+                  {cat}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
 
-      {listContent}
-    </div>
+        {listContent}
+      </div>
     </>
   );
 }

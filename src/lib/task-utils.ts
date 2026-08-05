@@ -1,4 +1,5 @@
-import { toDateKey } from "@/lib/date-utils";
+import { isBefore, startOfDay } from "date-fns";
+import { parseDateKey, toDateKey } from "@/lib/date-utils";
 import type { Task, UserProfile } from "@/lib/types";
 
 export type TaskKind = "personal" | "family";
@@ -64,4 +65,113 @@ export function getTodayTodoTasks(
     if (!targetId) return false;
     return t.assigneeId === targetId;
   });
+}
+
+export function isDateKeyOnOrAfter(
+  dateKey: string,
+  fromDateKey: string,
+): boolean {
+  const date = startOfDay(parseDateKey(dateKey));
+  const from = startOfDay(parseDateKey(fromDateKey));
+  return !isBefore(date, from);
+}
+
+export type RecurringDeleteMode = "single" | "fromDate" | "series";
+
+export function getRecurringDeleteTargetIds(
+  tasks: Task[],
+  options: {
+    familyId: string;
+    recurrenceGroupId: string;
+    mode: RecurringDeleteMode;
+    taskId?: string;
+    fromDate?: string;
+  },
+): string[] {
+  return tasks
+    .filter((task) => {
+      if (task.familyId !== options.familyId) return false;
+      if (task.recurrenceGroupId !== options.recurrenceGroupId) return false;
+
+      if (options.mode === "single") {
+        return task.id === options.taskId;
+      }
+      if (options.mode === "series") {
+        return true;
+      }
+      if (options.mode === "fromDate" && options.fromDate) {
+        return isDateKeyOnOrAfter(task.date, options.fromDate);
+      }
+      return false;
+    })
+    .map((task) => task.id);
+}
+
+export function canCurrentUserCreateTask(
+  task: Pick<Task, "requesterId" | "assigneeId">,
+  currentUserId: string,
+): boolean {
+  if (task.requesterId === null) {
+    return task.assigneeId === currentUserId;
+  }
+  return task.requesterId === currentUserId;
+}
+
+export function toggleTaskCompleted(task: Task): Task {
+  return { ...task, completed: !task.completed };
+}
+
+export function countIncompleteTasksForDate(
+  tasks: Task[],
+  dateKey: string,
+): number {
+  return tasks.filter((task) => task.date === dateKey && !task.completed).length;
+}
+
+export type CalendarTaskFilter = {
+  userId?: string;
+  assigneeOnly?: boolean;
+};
+
+export function matchesCalendarTask(
+  task: Task,
+  filter: CalendarTaskFilter,
+): boolean {
+  const { userId, assigneeOnly = false } = filter;
+  if (!userId) return !assigneeOnly;
+  if (assigneeOnly) return task.assigneeId === userId;
+  return isTaskForUser(task, userId);
+}
+
+export type CalendarDayStatus = "empty" | "pending" | "allComplete";
+
+export function getCalendarDayStatus(
+  tasks: Task[],
+  dateKey: string,
+  filter: CalendarTaskFilter,
+): {
+  status: CalendarDayStatus;
+  incompleteCount: number;
+  totalCount: number;
+} {
+  const dayTasks = tasks.filter(
+    (task) => task.date === dateKey && matchesCalendarTask(task, filter),
+  );
+  const incompleteCount = dayTasks.filter((task) => !task.completed).length;
+  const totalCount = dayTasks.length;
+
+  if (totalCount === 0) {
+    return { status: "empty", incompleteCount: 0, totalCount: 0 };
+  }
+  if (incompleteCount > 0) {
+    return { status: "pending", incompleteCount, totalCount };
+  }
+  return { status: "allComplete", incompleteCount: 0, totalCount };
+}
+
+export const CALENDAR_MAX_DOTS = 3;
+
+export function getCalendarDotCount(incompleteCount: number): number {
+  if (incompleteCount <= 0) return 0;
+  return Math.min(incompleteCount, CALENDAR_MAX_DOTS);
 }

@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { ChevronLeft, ChevronRight, CalendarDays } from "lucide-react";
+import { Check, ChevronLeft, ChevronRight, CalendarDays } from "lucide-react";
 import {
   addMonths,
   getCalendarDays,
@@ -11,7 +11,10 @@ import {
   toDateKey,
   WEEKDAY_LABELS,
 } from "@/lib/date-utils";
-import { isTaskForUser } from "@/lib/task-utils";
+import {
+  getCalendarDayStatus,
+  getCalendarDotCount,
+} from "@/lib/task-utils";
 import { getUserLabel } from "@/lib/user-utils";
 import { useApp } from "@/context/AppProvider";
 import { UserAvatar } from "@/components/UserAvatar";
@@ -38,6 +41,7 @@ export function Calendar({
   const { familyTasks, getUserById } = useApp();
   const days = getCalendarDays(currentMonth);
   const user = userId ? getUserById(userId) : undefined;
+  const taskFilter = { userId, assigneeOnly };
 
   const getDayLink = (dateKey: string) => {
     if (userId) {
@@ -46,12 +50,6 @@ export function Calendar({
       return `/day/${dateKey}?${params.toString()}`;
     }
     return `/day/${dateKey}`;
-  };
-
-  const matchesUser = (task: (typeof familyTasks)[number]) => {
-    if (!userId) return !assigneeOnly;
-    if (assigneeOnly) return task.assigneeId === userId;
-    return isTaskForUser(task, userId);
   };
 
   return (
@@ -157,11 +155,12 @@ export function Calendar({
           const dateKey = toDateKey(day);
           const inMonth = isSameMonth(day, currentMonth);
           const isCurrentDay = isToday(day);
-          const dayTasks = familyTasks.filter((t) => {
-            if (t.date !== dateKey) return false;
-            return matchesUser(t);
-          });
-          const pendingCount = dayTasks.filter((t) => !t.completed).length;
+          const { status, incompleteCount } = getCalendarDayStatus(
+            familyTasks,
+            dateKey,
+            taskFilter,
+          );
+          const dotCount = getCalendarDotCount(incompleteCount);
 
           return (
             <Link
@@ -184,20 +183,42 @@ export function Calendar({
               >
                 {day.getDate()}
               </span>
-              <div className="flex w-full flex-col items-center gap-0.5">
-                <div className="flex justify-center gap-0.5 overflow-hidden">
-                  {dayTasks.slice(0, 3).map((task) => (
+              <div className="flex w-full min-w-0 flex-col items-center gap-0.5">
+                {status === "pending" && (
+                  <>
+                    <div className="flex justify-center gap-0.5">
+                      {Array.from({ length: dotCount }, (_, index) => (
+                        <span
+                          key={index}
+                          className={`rounded-full bg-orange-400 ${
+                            compact ? "h-1.5 w-1.5" : "h-2 w-2"
+                          }`}
+                          aria-hidden
+                        />
+                      ))}
+                    </div>
                     <span
-                      key={task.id}
-                      className={`rounded-full ${
-                        compact ? "h-1.5 w-1.5" : "h-2 w-2"
-                      } ${task.completed ? "bg-emerald-400" : "bg-orange-400"}`}
+                      className={`truncate font-extrabold text-amber-700 ${
+                        compact
+                          ? "max-w-full text-[9px] leading-none md:text-[10px]"
+                          : "text-[10px] sm:text-[11px]"
+                      }`}
+                    >
+                      {incompleteCount}件
+                    </span>
+                  </>
+                )}
+                {status === "allComplete" && (
+                  <span
+                    className="flex items-center justify-center"
+                    aria-label="この日のタスクはすべて完了しています"
+                  >
+                    <Check
+                      className={`text-slate-400 ${
+                        compact ? "h-3 w-3 md:h-3.5 md:w-3.5" : "h-3.5 w-3.5"
+                      }`}
+                      aria-hidden
                     />
-                  ))}
-                </div>
-                {dayTasks.length > 0 && !compact && (
-                  <span className="hidden rounded px-1 text-[10px] font-extrabold text-amber-700 sm:inline-block">
-                    {pendingCount > 0 ? `${pendingCount}件` : "完了"}
                   </span>
                 )}
               </div>

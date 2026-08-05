@@ -30,6 +30,10 @@ type TaskFormProps = {
   defaultAssigneeId?: string;
   onCancel?: () => void;
   onSaved?: () => void;
+  onBulkCreated?: (info: {
+    count: number;
+    recurrenceGroupId: string;
+  }) => void;
 };
 
 function resolveInitialKind(
@@ -50,6 +54,7 @@ export function TaskForm({
   defaultAssigneeId,
   onCancel,
   onSaved,
+  onBulkCreated,
 }: TaskFormProps) {
   const { addTask, updateTask, currentUser, getOtherFamilyMembers } = useApp();
   const isEdit = Boolean(task);
@@ -166,7 +171,7 @@ export function TaskForm({
         });
         onSaved?.();
       } else {
-        const success = addTask({
+        const result = addTask({
           date: dateKey,
           title: title.trim(),
           requesterId: memberIds.requesterId,
@@ -182,9 +187,19 @@ export function TaskForm({
             : null,
         });
 
-        if (!success) {
+        if (!result.success) {
           setFormError("タスクを作成できませんでした。入力内容を確認してください。");
           return;
+        }
+
+        if (
+          result.recurrenceGroupId &&
+          result.createdCount > 1
+        ) {
+          onBulkCreated?.({
+            count: result.createdCount,
+            recurrenceGroupId: result.recurrenceGroupId,
+          });
         }
 
         resetForm();

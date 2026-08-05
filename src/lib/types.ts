@@ -43,6 +43,10 @@ export type Task = {
   recurrenceGroupId: string | null;
 };
 
+export type AddTaskResult =
+  | { success: true; createdCount: number; recurrenceGroupId: string | null }
+  | { success: false };
+
 export type Session = {
   userId: string;
   activeFamilyId: string | null;
