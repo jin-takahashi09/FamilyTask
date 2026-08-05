@@ -48,6 +48,7 @@ export default function TodayPageContent() {
       <TaskList
         tasks={todayTasks}
         title="今日のタスク"
+        showSort
         emptyMessage="今日やるべきタスクはありません"
         showFilters={false}
       />

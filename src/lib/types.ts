@@ -43,6 +43,12 @@ export type Task = {
   recurrenceGroupId: string | null;
 };
 
+export type TaskSortOrder =
+  | "deadlineAsc"
+  | "createdDesc"
+  | "createdAsc"
+  | "titleAsc";
+
 export type AddTaskResult =
   | { success: true; createdCount: number; recurrenceGroupId: string | null }
   | { success: false };
@@ -60,6 +66,8 @@ export type AppState = {
   session: Session | null;
   /** Persists last active family per user across logout/login */
   activeFamilyPreferences: Record<string, string>;
+  /** Persists task list sort order per user */
+  taskSortPreferences: Record<string, TaskSortOrder>;
 };
 
 /** @deprecated Legacy member type – kept only for migration reference */

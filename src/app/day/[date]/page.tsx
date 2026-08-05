@@ -98,6 +98,7 @@ function DayPageContent({ dateKey }: { dateKey: string }) {
       <TaskList
         tasks={tasks}
         title="この日のタスク"
+        showSort
         showAddHint={isOwnCalendar}
         emptyMessage={
           user

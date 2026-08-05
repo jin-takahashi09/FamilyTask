@@ -33,6 +33,12 @@ import {
   formatDeadlineTimeDisplay,
   parseDeadlineTime,
 } from "../src/lib/time-utils.ts";
+import {
+  DEFAULT_TASK_SORT_ORDER,
+  normalizeTaskSortOrder,
+  sortTasks,
+  sortTasksForDisplay,
+} from "../src/lib/task-sort-utils.ts";
 
 const results = [];
 
@@ -758,6 +764,186 @@ record(
   "10",
   "別メンバーを含めない",
   !matchesCalendarTask(calendarTasksAll[3], filterU1),
+);
+
+console.log("\n## 11. タスク並び替え");
+
+const sortBase = {
+  ...sampleTask,
+  familyId: "f1",
+  date: "2026-08-16",
+  completed: false,
+};
+
+const sortTasksSample = [
+  {
+    ...sortBase,
+    id: "s1",
+    title: "いちご",
+    deadlineTime: "18:00",
+    createdAt: "2026-08-01T10:00:00.000Z",
+  },
+  {
+    ...sortBase,
+    id: "s2",
+    title: "Apple",
+    deadlineTime: "08:00",
+    createdAt: "2026-08-01T12:00:00.000Z",
+  },
+  {
+    ...sortBase,
+    id: "s3",
+    title: "バナナ",
+    deadlineTime: null,
+    createdAt: "2026-08-01T08:00:00.000Z",
+  },
+  {
+    ...sortBase,
+    id: "s4",
+    title: "朝食",
+    deadlineTime: "08:00",
+    createdAt: "2026-08-01T09:00:00.000Z",
+  },
+  {
+    ...sortBase,
+    id: "s5",
+    title: "夕方",
+    deadlineTime: "13:00",
+    createdAt: "2026-08-02T10:00:00.000Z",
+  },
+];
+
+const deadlineSorted = sortTasks(sortTasksSample, "deadlineAsc");
+record(
+  "11",
+  "締切が近い順",
+  deadlineSorted.map((t) => t.id).join(",") === "s4,s2,s5,s1,s3",
+);
+record(
+  "11",
+  "締切未設定は最後",
+  deadlineSorted[deadlineSorted.length - 1].id === "s3",
+);
+record(
+  "11",
+  "同じ締切は追加が古い順",
+  deadlineSorted[0].id === "s4" && deadlineSorted[1].id === "s2",
+);
+
+const createdDescSorted = sortTasks(sortTasksSample, "createdDesc");
+record(
+  "11",
+  "追加が新しい順",
+  createdDescSorted[0].id === "s5" &&
+    createdDescSorted[createdDescSorted.length - 1].id === "s3",
+);
+
+const createdAscSorted = sortTasks(sortTasksSample, "createdAsc");
+record(
+  "11",
+  "追加が古い順",
+  createdAscSorted[0].id === "s3" &&
+    createdAscSorted[createdAscSorted.length - 1].id === "s5",
+);
+
+const titleSorted = sortTasks(sortTasksSample, "titleAsc");
+record(
+  "11",
+  "タスク名順",
+  titleSorted.map((t) => t.title).join("|") ===
+    "Apple|いちご|バナナ|朝食|夕方",
+);
+
+const mixedCompletion = [
+  { ...sortBase, id: "m1", title: "A", completed: true, createdAt: "2026-08-01T10:00:00.000Z" },
+  { ...sortBase, id: "m2", title: "B", completed: false, createdAt: "2026-08-01T11:00:00.000Z" },
+  { ...sortBase, id: "m3", title: "C", completed: true, createdAt: "2026-08-01T12:00:00.000Z" },
+  { ...sortBase, id: "m4", title: "D", completed: false, createdAt: "2026-08-01T09:00:00.000Z" },
+];
+const allStatusSorted = sortTasksForDisplay(
+  mixedCompletion,
+  "createdAsc",
+  "すべて",
+);
+record(
+  "11",
+  "すべて表示で未完了を先に",
+  allStatusSorted.map((t) => t.id).join(",") === "m4,m2,m1,m3",
+);
+record(
+  "11",
+  "完了済みは最後に並ぶ",
+  allStatusSorted.slice(2).every((t) => t.completed),
+);
+
+record(
+  "11",
+  "不正な並び順はデフォルト",
+  normalizeTaskSortOrder("invalid") === DEFAULT_TASK_SORT_ORDER,
+);
+
+const migratedSort = migrateState({
+  users: [
+    {
+      id: "u1",
+      email: "a@test.com",
+      displayName: "A",
+      profileImage: null,
+      profileCompleted: true,
+    },
+  ],
+  families: [
+    {
+      id: "f1",
+      name: "A",
+      inviteCode: "AAA111",
+      ownerId: "u1",
+      createdAt: "2026-01-01",
+    },
+  ],
+  memberships: [
+    { id: "m1", familyId: "f1", userId: "u1", role: "owner", joinedAt: "2026-01-01" },
+  ],
+  tasks: [],
+  session: { userId: "u1", activeFamilyId: "f1" },
+  taskSortPreferences: { u1: "titleAsc", other: "bad" },
+});
+record(
+  "11",
+  "taskSortPreferencesを復元",
+  migratedSort.taskSortPreferences.u1 === "titleAsc" &&
+    migratedSort.taskSortPreferences.other === DEFAULT_TASK_SORT_ORDER,
+);
+record(
+  "11",
+  "taskSortPreferences未設定時は空",
+  Object.keys(
+    migrateState({
+      users: [
+        {
+          id: "u1",
+          email: "a@test.com",
+          displayName: "A",
+          profileImage: null,
+          profileCompleted: true,
+        },
+      ],
+      families: [
+        {
+          id: "f1",
+          name: "A",
+          inviteCode: "AAA111",
+          ownerId: "u1",
+          createdAt: "2026-01-01",
+        },
+      ],
+      memberships: [
+        { id: "m1", familyId: "f1", userId: "u1", role: "owner", joinedAt: "2026-01-01" },
+      ],
+      tasks: [],
+      session: { userId: "u1", activeFamilyId: "f1" },
+    }).taskSortPreferences,
+  ).length === 0,
 );
 
 const failed = results.filter((r) => !r.pass);

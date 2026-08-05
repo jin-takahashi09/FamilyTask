@@ -163,6 +163,7 @@ export function MyTodayTasks({
         <TaskList
           tasks={todayTasks}
           embedded
+          showSort
           showFilters={false}
           emptyMessage="今日やるべきタスクはありません"
         />

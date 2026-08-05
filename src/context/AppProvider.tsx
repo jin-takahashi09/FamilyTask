@@ -35,9 +35,11 @@ import type {
   FamilyGroup,
   FamilyMembership,
   Task,
+  TaskSortOrder,
   UserProfile,
 } from "@/lib/types";
 import type { ProfileFormData } from "@/components/ProfileForm";
+import { DEFAULT_TASK_SORT_ORDER, normalizeTaskSortOrder } from "@/lib/task-sort-utils";
 
 type LoginResult =
   | { success: true; profileCompleted: boolean; hasFamily: boolean }
@@ -90,6 +92,8 @@ type AppContextValue = {
     familyId: string;
     recurrenceGroupId: string;
   }) => void;
+  taskSortOrder: TaskSortOrder;
+  setTaskSortOrder: (order: TaskSortOrder) => void;
   getTasksByDate: (dateKey: string) => Task[];
   getUserById: (id: string | null) => UserProfile | undefined;
   getMembershipForUser: (userId: string) => FamilyMembership | undefined;
@@ -884,6 +888,29 @@ export function AppProvider({ children }: { children: ReactNode }) {
     [state.memberships, currentFamilyId],
   );
 
+  const taskSortOrder = useMemo((): TaskSortOrder => {
+    const userId = state.session?.userId;
+    if (!userId) return DEFAULT_TASK_SORT_ORDER;
+    return normalizeTaskSortOrder(state.taskSortPreferences[userId]);
+  }, [state.session?.userId, state.taskSortPreferences]);
+
+  const setTaskSortOrder = useCallback(
+    (order: TaskSortOrder) => {
+      updateState((prev) => {
+        const userId = prev.session?.userId;
+        if (!userId) return prev;
+        return {
+          ...prev,
+          taskSortPreferences: {
+            ...prev.taskSortPreferences,
+            [userId]: order,
+          },
+        };
+      });
+    },
+    [updateState],
+  );
+
   const value = useMemo(
     () => ({
       users: state.users,
@@ -919,6 +946,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
       deleteTask,
       deleteRecurringTasksFromDate,
       deleteRecurringTaskSeries,
+      taskSortOrder,
+      setTaskSortOrder,
       getTasksByDate,
       getUserById,
       getMembershipForUser,
@@ -953,6 +982,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
       deleteTask,
       deleteRecurringTasksFromDate,
       deleteRecurringTaskSeries,
+      taskSortOrder,
+      setTaskSortOrder,
       getTasksByDate,
       getUserById,
       getMembershipForUser,

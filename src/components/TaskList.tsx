@@ -10,12 +10,18 @@ import { UserAvatar } from "@/components/UserAvatar";
 import { getRepeatLabel } from "@/lib/recurrence-utils";
 import { getUserInitials, getUserLabel } from "@/lib/user-utils";
 import { shouldShowMemberFlow } from "@/lib/task-utils";
+import {
+  sortTasksForDisplay,
+  type TaskListStatusFilter,
+} from "@/lib/task-sort-utils";
+import { TaskSortMenu } from "@/components/TaskSortMenu";
 import type { Task } from "@/lib/types";
 
 type TaskListProps = {
   tasks: Task[];
   emptyMessage?: string;
   showFilters?: boolean;
+  showSort?: boolean;
   embedded?: boolean;
   title?: string;
   showAddHint?: boolean;
@@ -52,6 +58,7 @@ export function TaskList({
   tasks,
   emptyMessage = "この日に予定されているタスクはありません",
   showFilters = true,
+  showSort = false,
   embedded = false,
   title = "タスク一覧",
   showAddHint = true,
@@ -63,6 +70,8 @@ export function TaskList({
     deleteRecurringTasksFromDate,
     deleteRecurringTaskSeries,
     getUserById,
+    taskSortOrder,
+    setTaskSortOrder,
   } = useApp();
   const [statusFilter, setStatusFilter] =
     useState<(typeof STATUS_FILTERS)[number]>("未完了");
@@ -70,11 +79,17 @@ export function TaskList({
   const [deleteTarget, setDeleteTarget] = useState<Task | null>(null);
   const [recurringDeleteOpen, setRecurringDeleteOpen] = useState(false);
 
-  const filteredTasks = tasks.filter((t) => {
-    if (statusFilter === "未完了") return !t.completed;
-    if (statusFilter === "完了済み") return t.completed;
-    return true;
-  });
+  const displayTasks = showSort
+    ? sortTasksForDisplay(
+        tasks,
+        taskSortOrder,
+        statusFilter as TaskListStatusFilter,
+      )
+    : tasks.filter((t) => {
+        if (statusFilter === "未完了") return !t.completed;
+        if (statusFilter === "完了済み") return t.completed;
+        return true;
+      });
 
   const handleComplete = (task: Task) => {
     const nextCompleted = !task.completed;
@@ -184,7 +199,7 @@ export function TaskList({
   };
 
   const listContent =
-    filteredTasks.length === 0 ? (
+    displayTasks.length === 0 ? (
       <div
         className={`flex flex-col items-center justify-center text-center ${
           embedded ? "py-8" : "flex-grow py-16"
@@ -212,7 +227,7 @@ export function TaskList({
           embedded ? "max-h-80" : "max-h-[600px]"
         }`}
       >
-        {filteredTasks.map((task) => {
+        {displayTasks.map((task) => {
           if (editingTaskId === task.id) {
             return (
               <li key={task.id}>
@@ -336,10 +351,21 @@ export function TaskList({
     </>
   );
 
+  const sortControl = showSort ? (
+    <TaskSortMenu
+      value={taskSortOrder}
+      onChange={setTaskSortOrder}
+      compact={embedded}
+    />
+  ) : null;
+
   if (embedded) {
     return (
       <>
         {deleteDialogs}
+        {showSort && (
+          <div className="mb-3 flex justify-end">{sortControl}</div>
+        )}
         {listContent}
       </>
     );
@@ -354,27 +380,30 @@ export function TaskList({
             <ListChecks className="h-5 w-5 text-amber-500" />
             <h3 className="text-lg font-extrabold text-slate-800">{title}</h3>
             <span className="rounded-full bg-amber-100 px-2.5 py-0.5 text-xs font-extrabold text-amber-800">
-              {filteredTasks.length}
+              {displayTasks.length}
             </span>
           </div>
-          {showFilters && (
-            <div className="flex items-center gap-1 rounded-2xl bg-slate-100/80 p-1">
-              {STATUS_FILTERS.map((cat) => (
-                <button
-                  key={cat}
-                  type="button"
-                  onClick={() => setStatusFilter(cat)}
-                  className={`rounded-xl px-3 py-1.5 text-xs font-bold transition-all ${
-                    statusFilter === cat
-                      ? "bg-amber-100 text-amber-900 shadow-xs"
-                      : "text-slate-500 hover:text-slate-800"
-                  }`}
-                >
-                  {cat}
-                </button>
-              ))}
-            </div>
-          )}
+          <div className="flex flex-wrap items-center justify-end gap-2">
+            {sortControl}
+            {showFilters && (
+              <div className="flex items-center gap-1 rounded-2xl bg-slate-100/80 p-1">
+                {STATUS_FILTERS.map((cat) => (
+                  <button
+                    key={cat}
+                    type="button"
+                    onClick={() => setStatusFilter(cat)}
+                    className={`rounded-xl px-3 py-1.5 text-xs font-bold transition-all ${
+                      statusFilter === cat
+                        ? "bg-amber-100 text-amber-900 shadow-xs"
+                        : "text-slate-500 hover:text-slate-800"
+                    }`}
+                  >
+                    {cat}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
         </div>
 
         {listContent}

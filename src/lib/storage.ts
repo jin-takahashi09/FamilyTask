@@ -4,11 +4,13 @@ import type {
   FamilyMembership,
   RepeatType,
   Task,
+  TaskSortOrder,
   UserProfile,
 } from "./types";
 import { resolveActiveFamilyId, sanitizeMemberships } from "./family-utils";
 import { parseDateKey } from "./date-utils";
 import { getDay } from "date-fns";
+import { normalizeTaskSortOrder } from "./task-sort-utils";
 
 export const STORAGE_KEY = "family-task-app";
 
@@ -19,6 +21,7 @@ export const DEFAULT_STATE: AppState = {
   tasks: [],
   session: null,
   activeFamilyPreferences: {},
+  taskSortPreferences: {},
 };
 
 type LegacyState = Partial<AppState> & {
@@ -195,6 +198,18 @@ export function migrateState(raw: LegacyState): AppState {
     }
   }
 
+  const taskSortPreferences: Record<string, TaskSortOrder> =
+    raw.taskSortPreferences &&
+    typeof raw.taskSortPreferences === "object" &&
+    !Array.isArray(raw.taskSortPreferences)
+      ? Object.fromEntries(
+          Object.entries(raw.taskSortPreferences).map(([userId, order]) => [
+            userId,
+            normalizeTaskSortOrder(order),
+          ]),
+        )
+      : {};
+
   return {
     users,
     families,
@@ -202,6 +217,7 @@ export function migrateState(raw: LegacyState): AppState {
     tasks: migrateTasks(raw),
     session,
     activeFamilyPreferences,
+    taskSortPreferences,
   };
 }
 
