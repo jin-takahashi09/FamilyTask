@@ -1,0 +1,55 @@
+@import "tailwindcss";
+
+:root {
+  --background: #faf8f5;
+  --foreground: #334155;
+  --warm-dot: #f3ebdd;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-warmbg: #faf8f5;
+  --color-brand-50: #fffbeb;
+  --color-brand-100: #fef3c7;
+  --color-brand-400: #fbbf24;
+  --color-brand-500: #f59e0b;
+  --color-brand-600: #d97706;
+  --font-sans: var(--font-rounded);
+}
+
+body {
+  background-color: var(--background);
+  background-image: radial-gradient(var(--warm-dot) 1.2px, transparent 1.2px);
+  background-size: 20px 20px;
+  color: var(--foreground);
+  font-family: var(--font-rounded), "Hiragino Maru Gothic ProN", "Hiragino Sans",
+    sans-serif;
+}
+
+.custom-scrollbar::-webkit-scrollbar {
+  width: 6px;
+}
+
+.custom-scrollbar::-webkit-scrollbar-track {
+  background: #f3f4f6;
+  border-radius: 10px;
+}
+
+.custom-scrollbar::-webkit-scrollbar-thumb {
+  background: #fcd34d;
+  border-radius: 10px;
+}
+
+.task-card {
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.task-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 10px 15px -3px rgba(245, 158, 11, 0.1);
+}
+
+input[type="time"]::-webkit-calendar-picker-indicator {
+  cursor: pointer;
+}
