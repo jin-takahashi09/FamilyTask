@@ -166,9 +166,117 @@ export function validateRepeatEndDate(
   const start = startOfDay(parseDateKey(startDate));
   const end = startOfDay(parseDateKey(repeatEndDate));
   if (isBefore(end, start)) {
-    return "終了日は開始日以降を選択してください";
+    return "終了日は実施日以降を選択してください";
   }
   return null;
+}
+
+export type RepeatEndMonthDay = { month: number; day: number };
+
+/** Year used when resolving month/day relative to the task start date. */
+export function getRepeatEndYearForMonth(
+  startDate: string,
+  month: number,
+): number {
+  const start = parseDateKey(startDate);
+  const startMonth = start.getMonth() + 1;
+  return month < startMonth ? start.getFullYear() + 1 : start.getFullYear();
+}
+
+/** Extract month/day from stored yyyy-MM-dd (year is ignored for display). */
+export function parseRepeatEndMonthDay(
+  repeatEndDate: string | null | undefined,
+): RepeatEndMonthDay | null {
+  if (!repeatEndDate?.trim()) return null;
+  const parsed = parseDateKey(repeatEndDate.trim());
+  return { month: parsed.getMonth() + 1, day: parsed.getDate() };
+}
+
+export function getRepeatEndDaysInMonth(
+  month: number,
+  startDate: string,
+): number {
+  const year = getRepeatEndYearForMonth(startDate, month);
+  return getDaysInMonth(month, year);
+}
+
+/** Minimum selectable day for a month (same month as start uses start day). */
+export function getRepeatEndMinDay(startDate: string, month: number): number {
+  const start = parseDateKey(startDate);
+  const startMonth = start.getMonth() + 1;
+  const startDay = start.getDate();
+  const endYear = getRepeatEndYearForMonth(startDate, month);
+  const startYear = start.getFullYear();
+
+  if (month === startMonth && endYear === startYear) {
+    return startDay;
+  }
+  return 1;
+}
+
+export function isRepeatEndMonthDaySelectable(
+  startDate: string,
+  monthDay: RepeatEndMonthDay,
+): boolean {
+  const minDay = getRepeatEndMinDay(startDate, monthDay.month);
+  const maxDay = getRepeatEndDaysInMonth(monthDay.month, startDate);
+  if (monthDay.day < minDay || monthDay.day > maxDay) {
+    return false;
+  }
+  const resolved = repeatEndMonthDayToDateKey(startDate, monthDay);
+  return validateRepeatEndDate(startDate, resolved) === null;
+}
+
+export function validateRepeatEndMonthDay(
+  startDate: string,
+  monthDay: RepeatEndMonthDay | null,
+): string | null {
+  if (!monthDay) return null;
+  if (!isRepeatEndMonthDaySelectable(startDate, monthDay)) {
+    return "終了日は実施日以降を選択してください";
+  }
+  return validateRepeatEndDate(
+    startDate,
+    repeatEndMonthDayToDateKey(startDate, monthDay),
+  );
+}
+
+export function sanitizeRepeatEndMonthDay(
+  startDate: string,
+  repeatEndDate: string | null | undefined,
+): RepeatEndMonthDay | null {
+  if (!repeatEndDate?.trim()) return null;
+  if (validateRepeatEndDate(startDate, repeatEndDate.trim())) return null;
+  const monthDay = parseRepeatEndMonthDay(repeatEndDate);
+  if (!monthDay || !isRepeatEndMonthDaySelectable(startDate, monthDay)) {
+    return null;
+  }
+  return monthDay;
+}
+
+function getDaysInMonth(month: number, year: number): number {
+  return getDate(endOfMonth(new Date(year, month - 1, 1)));
+}
+
+/** Build yyyy-MM-dd from month/day, using start date year (or next year if needed). */
+export function repeatEndMonthDayToDateKey(
+  startDate: string,
+  monthDay: RepeatEndMonthDay,
+): string {
+  const start = startOfDay(parseDateKey(startDate));
+  const startYear = start.getFullYear();
+
+  const toDate = (year: number) => {
+    const lastDay = getDaysInMonth(monthDay.month, year);
+    const day = Math.min(monthDay.day, lastDay);
+    return startOfDay(new Date(year, monthDay.month - 1, day));
+  };
+
+  let candidate = toDate(startYear);
+  if (isBefore(candidate, start)) {
+    candidate = toDate(startYear + 1);
+  }
+  return toDateKey(candidate);
 }
 
 export function getEffectiveEndDate(

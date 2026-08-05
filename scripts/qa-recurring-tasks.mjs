@@ -6,8 +6,14 @@ import {
   generateRecurringDates,
   getRepeatLabel,
   getRepeatOptionLabel,
+  getRepeatEndMinDay,
+  isRepeatEndMonthDaySelectable,
+  parseRepeatEndMonthDay,
   REPEAT_DROPDOWN_OPTIONS,
+  repeatEndMonthDayToDateKey,
+  sanitizeRepeatEndMonthDay,
   validateRepeatEndDate,
+  validateRepeatEndMonthDay,
 } from "../src/lib/recurrence-utils.ts";
 import { parseDateKey } from "../src/lib/date-utils.ts";
 import { getDay } from "date-fns";
@@ -176,8 +182,8 @@ console.log("\n## 3. バリデーション");
 const endBeforeStart = validateRepeatEndDate("2026-08-10", "2026-08-05");
 record(
   "3",
-  "終了日が開始日より前ならエラー",
-  endBeforeStart === "終了日は開始日以降を選択してください",
+  "終了日が実施日より前ならエラー",
+  endBeforeStart === "終了日は実施日以降を選択してください",
 );
 
 const emptyRange = generateRecurringDates({
@@ -186,6 +192,62 @@ const emptyRange = generateRecurringDates({
   repeatEndDate: "2026-08-05",
 });
 record("3", "無効な期間は0件", emptyRange.length === 0);
+
+record(
+  "3",
+  "月日→日付：同年",
+  repeatEndMonthDayToDateKey("2026-08-06", { month: 12, day: 25 }) ===
+    "2026-12-25",
+);
+record(
+  "3",
+  "月日→日付：翌年",
+  repeatEndMonthDayToDateKey("2026-08-06", { month: 3, day: 31 }) ===
+    "2027-03-31",
+);
+record(
+  "3",
+  "保存日付→月日",
+  parseRepeatEndMonthDay("2027-03-31")?.month === 3 &&
+    parseRepeatEndMonthDay("2027-03-31")?.day === 31,
+);
+
+record(
+  "3",
+  "実施日08/16で08/15は不可",
+  !isRepeatEndMonthDaySelectable("2026-08-16", { month: 8, day: 15 }),
+);
+record(
+  "3",
+  "実施日08/16で08/16は可",
+  isRepeatEndMonthDaySelectable("2026-08-16", { month: 8, day: 16 }),
+);
+record(
+  "3",
+  "実施日08/16で08/17は可",
+  isRepeatEndMonthDaySelectable("2026-08-16", { month: 8, day: 17 }),
+);
+record(
+  "3",
+  "実施日08/16の8月最小日",
+  getRepeatEndMinDay("2026-08-16", 8) === 16,
+);
+record(
+  "3",
+  "実施日変更で終了日が無効なら未設定",
+  sanitizeRepeatEndMonthDay("2026-08-25", "2026-08-20") === null,
+);
+record(
+  "3",
+  "不正な月日は保存不可",
+  validateRepeatEndMonthDay("2026-08-16", { month: 8, day: 15 }) ===
+    "終了日は実施日以降を選択してください",
+);
+record(
+  "3",
+  "終了日未設定は保存可",
+  validateRepeatEndMonthDay("2026-08-16", null) === null,
+);
 
 console.log("\n## 4. 旧データ移行");
 

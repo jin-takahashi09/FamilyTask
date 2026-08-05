@@ -12,12 +12,16 @@ import {
 import {
   REPEAT_DROPDOWN_OPTIONS,
   getRepeatOptionLabel,
+  repeatEndMonthDayToDateKey,
   repeatSelectionToValue,
-  validateRepeatEndDate,
+  sanitizeRepeatEndMonthDay,
+  validateRepeatEndMonthDay,
   valueToRepeatSelection,
+  type RepeatEndMonthDay,
 } from "@/lib/recurrence-utils";
 import type { RepeatType, Task } from "@/lib/types";
 import { DeadlineTimeField } from "@/components/DeadlineTimePicker";
+import { RepeatEndDateField } from "@/components/RepeatEndDateField";
 import { VoiceInputButton } from "./VoiceInputButton";
 
 type TaskFormProps = {
@@ -82,9 +86,16 @@ export function TaskForm({
   const [repeatWeekday, setRepeatWeekday] = useState<number | null>(
     task?.repeatWeekday ?? null,
   );
-  const [repeatEndDate, setRepeatEndDate] = useState(
-    task?.repeatEndDate ?? "",
-  );
+  const [repeatEndMonthDayState, setRepeatEndMonthDay] =
+    useState<RepeatEndMonthDay | null>(() =>
+      sanitizeRepeatEndMonthDay(dateKey, task?.repeatEndDate),
+    );
+
+  const repeatEndMonthDay =
+    repeatEndMonthDayState &&
+    validateRepeatEndMonthDay(dateKey, repeatEndMonthDayState) === null
+      ? repeatEndMonthDayState
+      : null;
 
   const resolvedFamilyAssigneeId =
     familyAssigneeId || familyMembers[0]?.id || "";
@@ -107,7 +118,7 @@ export function TaskForm({
     setNotifyOnComplete(false);
     setRepeatType("none");
     setRepeatWeekday(null);
-    setRepeatEndDate("");
+    setRepeatEndMonthDay(null);
     setFormError("");
   };
 
@@ -127,10 +138,7 @@ export function TaskForm({
     if (taskKind === "family" && !resolvedFamilyAssigneeId) return;
 
     if (!isEdit && repeatType !== "none") {
-      const endError = validateRepeatEndDate(
-        dateKey,
-        repeatEndDate.trim() || null,
-      );
+      const endError = validateRepeatEndMonthDay(dateKey, repeatEndMonthDay);
       if (endError) {
         setFormError(endError);
         return;
@@ -169,7 +177,9 @@ export function TaskForm({
           notifyOnComplete: taskKind === "family" ? notifyOnComplete : false,
           repeatType,
           repeatWeekday,
-          repeatEndDate: repeatEndDate.trim() || null,
+          repeatEndDate: repeatEndMonthDay
+            ? repeatEndMonthDayToDateKey(dateKey, repeatEndMonthDay)
+            : null,
         });
 
         if (!success) {
@@ -311,7 +321,7 @@ export function TaskForm({
                   setRepeatType(next.repeatType);
                   setRepeatWeekday(next.repeatWeekday);
                   if (next.repeatType === "none") {
-                    setRepeatEndDate("");
+                    setRepeatEndMonthDay(null);
                   }
                   setFormError("");
                 }}
@@ -338,20 +348,15 @@ export function TaskForm({
                   className="mb-1 block text-xs font-bold text-slate-700"
                 >
                   繰り返し終了日
-                  <span className="ml-1 font-medium text-slate-400">
-                    （任意・未設定時は1年先まで）
-                  </span>
                 </label>
-                <input
+                <RepeatEndDateField
                   id="repeat-end-date"
-                  type="date"
-                  value={repeatEndDate}
-                  min={dateKey}
-                  onChange={(e) => {
-                    setRepeatEndDate(e.target.value);
+                  startDateKey={dateKey}
+                  value={repeatEndMonthDay}
+                  onChange={(next) => {
+                    setRepeatEndMonthDay(next);
                     setFormError("");
                   }}
-                  className="w-full max-w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm font-bold focus:border-amber-400 focus:outline-none focus:ring-2 focus:ring-amber-100"
                 />
               </div>
             )}
