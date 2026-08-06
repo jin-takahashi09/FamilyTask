@@ -7,12 +7,14 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "qa:multi-group": "node scripts/qa-multi-group.mjs",
+    "qa:multi-group": "firebase emulators:exec --only auth --project demo-familytask \"node scripts/qa-multi-group-harness.mjs\"",
     "qa:migration": "npx tsx scripts/qa-migration.mjs",
-    "qa:recurring-tasks": "npx tsx scripts/qa-recurring-tasks.mjs"
+    "qa:recurring-tasks": "npx tsx scripts/qa-recurring-tasks.mjs",
+    "qa:firebase-auth": "npx tsx scripts/qa-firebase-auth.mjs"
   },
   "dependencies": {
     "date-fns": "^4.4.0",
+    "firebase": "^12.17.1",
     "lucide-react": "^1.28.0",
     "next": "16.3.0",
     "react": "19.2.8",
@@ -25,6 +27,7 @@
     "@types/react-dom": "^19",
     "eslint": "^9",
     "eslint-config-next": "16.3.0",
+    "firebase-tools": "^15.26.0",
     "playwright": "^1.62.1",
     "tailwindcss": "^4",
     "typescript": "^5"

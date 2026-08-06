@@ -12,6 +12,8 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
+    // Laravel API backend (separate PHP project)
+    "api/**",
   ]),
 ]);
 

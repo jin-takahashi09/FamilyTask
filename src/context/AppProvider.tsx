@@ -6,6 +6,7 @@ import {
   useContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
   useSyncExternalStore,
   type ReactNode,
@@ -40,10 +41,24 @@ import type {
 } from "@/lib/types";
 import type { ProfileFormData } from "@/components/ProfileForm";
 import { DEFAULT_TASK_SORT_ORDER, normalizeTaskSortOrder } from "@/lib/task-sort-utils";
+import { fetchAuthMe, type AuthMeResponse } from "@/lib/api/auth";
+import { ApiError } from "@/lib/api/client";
+import {
+  getFirebaseAuthErrorMessage,
+  validateRegistrationInput,
+} from "@/lib/firebase/auth-errors";
+import { getFirebaseAuth, isFirebaseConfigured } from "@/lib/firebase/client";
+import {
+  createUserWithEmailAndPassword,
+  onAuthStateChanged,
+  signInWithEmailAndPassword,
+  signOut,
+  type User as FirebaseUser,
+} from "firebase/auth";
 
 type LoginResult =
   | { success: true; profileCompleted: boolean; hasFamily: boolean }
-  | { success: false };
+  | { success: false; error?: string };
 
 type FamilyActionResult =
   | { success: true; redirectTo?: string }
@@ -64,8 +79,13 @@ type AppContextValue = {
   isAuthenticated: boolean;
   hasFamily: boolean;
   isReady: boolean;
-  login: (email: string, password: string) => LoginResult;
-  logout: () => void;
+  login: (email: string, password: string) => Promise<LoginResult>;
+  register: (
+    email: string,
+    password: string,
+    passwordConfirm: string,
+  ) => Promise<LoginResult>;
+  logout: () => Promise<void>;
   completeProfile: (userId: string, data: ProfileFormData) => void;
   updateProfile: (userId: string, data: ProfileFormData) => void;
   switchFamily: (familyId: string) => FamilyActionResult;
@@ -152,13 +172,71 @@ function useIsClientReady() {
   );
 }
 
+function buildSessionFromVerified(
+  prev: AppState,
+  verified: AuthMeResponse,
+): { state: AppState; result: LoginResult } {
+  const nextUsers = [...prev.users];
+  const existingIndex = nextUsers.findIndex((user) => user.id === verified.uid);
+  let user: UserProfile;
+
+  if (existingIndex === -1) {
+    user = {
+      id: verified.uid,
+      email: verified.email ?? "",
+      displayName: "",
+      profileImage: null,
+      profileCompleted: false,
+    };
+    nextUsers.push(user);
+  } else {
+    user = {
+      ...nextUsers[existingIndex],
+      email: verified.email ?? nextUsers[existingIndex].email,
+    };
+    nextUsers[existingIndex] = user;
+  }
+
+  const userMemberships = getUserMemberships(prev.memberships, user.id);
+  const activeFamilyId = resolveActiveFamilyId(
+    user.id,
+    prev.memberships,
+    prev.session?.userId === user.id ? prev.session.activeFamilyId : null,
+    prev.activeFamilyPreferences[user.id],
+  );
+  const activeFamilyPreferences = { ...prev.activeFamilyPreferences };
+  if (activeFamilyId) {
+    activeFamilyPreferences[user.id] = activeFamilyId;
+  }
+
+  return {
+    state: {
+      ...prev,
+      users: nextUsers,
+      session: { userId: user.id, activeFamilyId },
+      activeFamilyPreferences,
+    },
+    result: {
+      success: true,
+      profileCompleted: user.profileCompleted,
+      hasFamily: userMemberships.length > 0,
+    },
+  };
+}
+
 export function AppProvider({ children }: { children: ReactNode }) {
   const [state, rawSetState] = useState<AppState>(() =>
     typeof window !== "undefined"
       ? normalizeActiveFamily(loadState())
       : DEFAULT_STATE,
   );
-  const isReady = useIsClientReady();
+  const clientReady = useIsClientReady();
+  const [authInitialized, setAuthInitialized] = useState(false);
+  const sessionUserIdRef = useRef<string | null>(null);
+  const syncSessionPromiseRef = useRef<Promise<LoginResult> | null>(null);
+  const firebaseConfigured = isFirebaseConfigured();
+  const isReady =
+    clientReady && (authInitialized || !firebaseConfigured);
 
   const updateState = useCallback(
     (updater: AppState | ((prev: AppState) => AppState)) => {
@@ -176,6 +254,86 @@ export function AppProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     if (isReady) saveState(state);
   }, [state, isReady]);
+
+  const syncSessionWithFirebase = useCallback(
+    async (firebaseUser: FirebaseUser | null): Promise<LoginResult> => {
+      if (syncSessionPromiseRef.current) {
+        return syncSessionPromiseRef.current;
+      }
+
+      const syncPromise = (async (): Promise<LoginResult> => {
+        if (!firebaseUser) {
+          updateState((prev) => {
+            const userId = prev.session?.userId;
+            const activeFamilyId = prev.session?.activeFamilyId;
+            const activeFamilyPreferences = { ...prev.activeFamilyPreferences };
+            if (userId && activeFamilyId) {
+              activeFamilyPreferences[userId] = activeFamilyId;
+            }
+            sessionUserIdRef.current = null;
+            return { ...prev, session: null, activeFamilyPreferences };
+          });
+          return { success: false };
+        }
+
+        try {
+          const verified = await fetchAuthMe();
+          let result: LoginResult = { success: false };
+          updateState((prev) => {
+            const built = buildSessionFromVerified(prev, verified);
+            result = built.result;
+            sessionUserIdRef.current = verified.uid;
+            return built.state;
+          });
+          return result;
+        } catch (error) {
+          sessionUserIdRef.current = null;
+          await signOut(getFirebaseAuth());
+          updateState((prev) => ({ ...prev, session: null }));
+          if (error instanceof ApiError) {
+            return {
+              success: false,
+              error: "サーバーとの認証に失敗しました",
+            };
+          }
+          return {
+            success: false,
+            error: "サーバーとの認証に失敗しました",
+          };
+        }
+      })();
+
+      syncSessionPromiseRef.current = syncPromise;
+
+      try {
+        return await syncPromise;
+      } finally {
+        if (syncSessionPromiseRef.current === syncPromise) {
+          syncSessionPromiseRef.current = null;
+        }
+      }
+    },
+    [updateState],
+  );
+
+  useEffect(() => {
+    sessionUserIdRef.current = state.session?.userId ?? null;
+  }, [state.session?.userId]);
+
+  useEffect(() => {
+    if (!clientReady || !firebaseConfigured) return;
+
+    const unsubscribe = onAuthStateChanged(getFirebaseAuth(), async (user) => {
+      if (user && sessionUserIdRef.current === user.uid) {
+        setAuthInitialized(true);
+        return;
+      }
+      await syncSessionWithFirebase(user);
+      setAuthInitialized(true);
+    });
+
+    return unsubscribe;
+  }, [clientReady, firebaseConfigured, syncSessionWithFirebase]);
 
   const currentUser = useMemo(() => {
     if (!state.session) return null;
@@ -227,58 +385,79 @@ export function AppProvider({ children }: { children: ReactNode }) {
     return getUserMemberships(state.memberships, currentUser.id).length > 0;
   }, [state.memberships, currentUser]);
 
-  const login = useCallback((email: string, password: string): LoginResult => {
-    void password;
-    const normalizedEmail = email.trim().toLowerCase();
-    if (!normalizedEmail) return { success: false };
-
-    let result: LoginResult = { success: false };
-
-    updateState((prev) => {
-      const nextUsers = [...prev.users];
-      let user = nextUsers.find((u) => u.email === normalizedEmail);
-
-      if (!user) {
-        user = {
-          id: crypto.randomUUID(),
-          email: normalizedEmail,
-          displayName: "",
-          profileImage: null,
-          profileCompleted: false,
+  const login = useCallback(
+    async (email: string, password: string): Promise<LoginResult> => {
+      if (!isFirebaseConfigured()) {
+        return {
+          success: false,
+          error: "Firebase設定が未完了です。.env.localを確認してください",
         };
-        nextUsers.push(user);
       }
 
-      const userMemberships = getUserMemberships(prev.memberships, user.id);
-      const activeFamilyId = resolveActiveFamilyId(
-        user.id,
-        prev.memberships,
-        null,
-        prev.activeFamilyPreferences[user.id],
+      const normalizedEmail = email.trim().toLowerCase();
+      if (!normalizedEmail) {
+        return { success: false, error: "メールアドレスを入力してください" };
+      }
+
+      try {
+        await signInWithEmailAndPassword(
+          getFirebaseAuth(),
+          normalizedEmail,
+          password,
+        );
+        return syncSessionWithFirebase(getFirebaseAuth().currentUser);
+      } catch (error) {
+        if (getFirebaseAuth().currentUser) {
+          await signOut(getFirebaseAuth());
+        }
+        return { success: false, error: getFirebaseAuthErrorMessage(error) };
+      }
+    },
+    [syncSessionWithFirebase],
+  );
+
+  const register = useCallback(
+    async (
+      email: string,
+      password: string,
+      passwordConfirm: string,
+    ): Promise<LoginResult> => {
+      if (!isFirebaseConfigured()) {
+        return {
+          success: false,
+          error: "Firebase設定が未完了です。.env.localを確認してください",
+        };
+      }
+
+      const validationError = validateRegistrationInput(
+        email,
+        password,
+        passwordConfirm,
       );
-      const activeFamilyPreferences = { ...prev.activeFamilyPreferences };
-      if (activeFamilyId) {
-        activeFamilyPreferences[user.id] = activeFamilyId;
+      if (validationError) {
+        return { success: false, error: validationError };
       }
 
-      result = {
-        success: true,
-        profileCompleted: user.profileCompleted,
-        hasFamily: userMemberships.length > 0,
-      };
+      const normalizedEmail = email.trim().toLowerCase();
 
-      return {
-        ...prev,
-        users: nextUsers,
-        session: { userId: user.id, activeFamilyId },
-        activeFamilyPreferences,
-      };
-    });
+      try {
+        await createUserWithEmailAndPassword(
+          getFirebaseAuth(),
+          normalizedEmail,
+          password,
+        );
+        return syncSessionWithFirebase(getFirebaseAuth().currentUser);
+      } catch (error) {
+        if (getFirebaseAuth().currentUser) {
+          await signOut(getFirebaseAuth());
+        }
+        return { success: false, error: getFirebaseAuthErrorMessage(error) };
+      }
+    },
+    [syncSessionWithFirebase],
+  );
 
-    return result;
-  }, [updateState]);
-
-  const logout = useCallback(() => {
+  const logout = useCallback(async () => {
     updateState((prev) => {
       const userId = prev.session?.userId;
       const activeFamilyId = prev.session?.activeFamilyId;
@@ -288,6 +467,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
       }
       return { ...prev, session: null, activeFamilyPreferences };
     });
+
+    if (isFirebaseConfigured()) {
+      await signOut(getFirebaseAuth());
+    }
   }, [updateState]);
 
   const completeProfile = useCallback((userId: string, data: ProfileFormData) => {
@@ -928,6 +1111,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       hasFamily,
       isReady,
       login,
+      register,
       logout,
       completeProfile,
       updateProfile,
@@ -964,6 +1148,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       hasFamily,
       isReady,
       login,
+      register,
       logout,
       completeProfile,
       updateProfile,

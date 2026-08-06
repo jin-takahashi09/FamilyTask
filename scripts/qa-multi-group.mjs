@@ -1,14 +1,15 @@
 /**
  * Multi-group QA (requires dev server: http://localhost:3000)
- * Clears localStorage at start/end. Uses test-only emails (@qa.local).
+ * Clears localStorage at start/end. Uses test-only emails (@example.com).
  */
 import { chromium } from "playwright";
 
 const BASE = process.env.QA_BASE_URL ?? "http://localhost:3000";
 const STORAGE_KEY = "family-task-app";
-const EMAIL_A = "qa-user-a@qa.local";
-const EMAIL_B = "qa-user-b@qa.local";
-const EMAIL_C = "qa-user-c@qa.local";
+const QA_PASSWORD = process.env.QA_FIREBASE_PASSWORD ?? "qa-password-123456";
+const EMAIL_A = "qa-user-a@example.com";
+const EMAIL_B = "qa-user-b@example.com";
+const EMAIL_C = "qa-user-c@example.com";
 const LONG_GROUP_NAME = "とても長いテスト用家族グループ名";
 const LONG_USER_NAME = "とても長いテストユーザー表示名";
 
@@ -91,12 +92,94 @@ async function assertTaskNotInActiveGroup(page, taskId) {
   );
 }
 
-async function login(page, email) {
+async function readFormError(page) {
+  return (
+    (await page.locator("form p.text-rose-500").textContent().catch(() => "")) ??
+    ""
+  );
+}
+
+async function submitLogin(page, email) {
   await page.goto(`${BASE}/login`);
   await page.waitForSelector('input[type="email"]');
+  await page
+    .getByRole("button", { name: "ログインモード（選択中）" })
+    .click()
+    .catch(() =>
+      page.getByRole("button", { name: "ログインモードに切り替え" }).click(),
+    );
   await page.fill('input[type="email"]', email);
-  await page.fill('input[type="password"]', "password");
-  await page.getByRole("button", { name: "ログイン" }).click();
+  await page.fill('input[type="password"]', QA_PASSWORD);
+  await page.locator("form").getByRole("button", { name: "ログイン" }).click();
+  await page.waitForTimeout(3000);
+}
+
+async function submitRegister(page, email) {
+  await page.getByRole("button", { name: "新規登録モードに切り替え" }).click();
+  await page.waitForSelector('input[autocomplete="new-password"]');
+  await page.fill('input[type="email"]', email);
+  const passwordFields = page.locator('input[type="password"]');
+  await passwordFields.nth(0).fill(QA_PASSWORD);
+  await passwordFields.nth(1).fill(QA_PASSWORD);
+  await page.locator("form").getByRole("button", { name: "新規登録" }).click();
+  await page.waitForTimeout(3000);
+}
+
+async function registerOrLogin(page, email) {
+  const maxAttempts = 2;
+
+  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+    await submitLogin(page, email);
+    if (!page.url().includes("/login")) return;
+
+    let error = await readFormError(page);
+
+    if (error.includes("Firebase設定が未完了")) {
+      throw new Error(
+        "Firebase is not configured. Copy .env.local.example to .env.local and set Firebase keys.",
+      );
+    }
+
+    if (error.includes("メール/パスワード認証が有効になっていません")) {
+      throw new Error(
+        "Email/Password sign-in is disabled in Firebase Console. Enable it under Authentication > Sign-in method, or run qa:multi-group which uses the Auth emulator.",
+      );
+    }
+
+    if (error.includes("サーバーとの認証に失敗") && attempt < maxAttempts) {
+      await page.waitForTimeout(1000);
+      continue;
+    }
+
+    if (error.includes("サーバーとの認証に失敗")) {
+      throw new Error(`Laravel auth failed for ${email}: ${error}`);
+    }
+
+    // First run: user does not exist yet → auto-register, then session is established.
+    await submitRegister(page, email);
+    if (!page.url().includes("/login")) return;
+
+    error = await readFormError(page);
+
+    if (error.includes("このメールアドレスは使用されています")) {
+      await submitLogin(page, email);
+      if (!page.url().includes("/login")) return;
+      error = await readFormError(page);
+    }
+
+    if (error.includes("サーバーとの認証に失敗") && attempt < maxAttempts) {
+      await page.waitForTimeout(1000);
+      continue;
+    }
+
+    throw new Error(
+      `Login/register failed for ${email}${error ? `: ${error}` : ""}`,
+    );
+  }
+}
+
+async function login(page, email) {
+  await registerOrLogin(page, email);
 }
 
 async function completeProfileIfNeeded(page, name) {
@@ -124,11 +207,12 @@ async function openFamilyPage(page) {
 
 async function headerShowsFamily(page, name) {
   await page.goto(`${BASE}/`);
-  await page.waitForTimeout(400);
+  await page.waitForTimeout(800);
   return page
     .locator("header h1")
     .filter({ hasText: `${name}のタスクボード` })
-    .isVisible();
+    .isVisible({ timeout: 5000 })
+    .catch(() => false);
 }
 
 async function createFamilyViaFamilyPage(page, name) {
@@ -142,7 +226,7 @@ async function createFamilyViaFamilyPage(page, name) {
 async function switchToFamily(page, familyName) {
   await openFamilyPage(page);
   await page.getByRole("button", { name: familyName, exact: true }).click();
-  await page.waitForTimeout(800);
+  await page.waitForTimeout(1200);
 }
 
 async function joinViaFamilyPage(page, code) {
@@ -260,7 +344,8 @@ async function main() {
     record("2", "学校グループでは宿題のみ表示", pageTextSchool?.includes("宿題") && !pageTextSchool?.includes("ゴミ出し"));
 
     await switchToFamily(page, "高橋家");
-    await page.waitForTimeout(500);
+    await page.goto(`${BASE}/`);
+    await page.waitForTimeout(800);
     const pageTextTaka = await page.textContent("body");
     record("2", "高橋家ではゴミ出しのみ表示", pageTextTaka?.includes("ゴミ出し") && !pageTextTaka?.includes("宿題"));
 
@@ -559,18 +644,10 @@ async function main() {
 
     // === 10. Responsive ===
     console.log("\n## 10. レスポンシブ");
-    state = await getState(page);
-    const bUser = state.users.find((u) => u.email === EMAIL_B);
-    const schoolGroupId = state.families.find((f) => f.name === "学校グループ")?.id;
-    await page.evaluate(
-      ({ key, userId, familyId }) => {
-        const s = JSON.parse(localStorage.getItem(key));
-        s.session = { userId, activeFamilyId: familyId };
-        localStorage.setItem(key, JSON.stringify(s));
-      },
-      { key: STORAGE_KEY, userId: bUser.id, familyId: schoolGroupId },
-    );
-    await page.goto(`${BASE}/`);
+    await logout(page);
+    await login(page, EMAIL_B);
+    await switchToFamily(page, "学校グループ");
+    await openFamilyPage(page);
     await page.waitForTimeout(500);
 
     for (const width of [375, 430, 768, 1024, 1440]) {
