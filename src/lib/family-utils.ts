@@ -184,6 +184,6 @@ export function getBoardTitle(familyName?: string | null): string {
   return "タスクボード";
 }
 
-/** localStorage demo limitation notice */
+/** Cloud-backed families notice */
 export const FAMILY_LOCAL_STORAGE_NOTICE =
-  "お試し版では、同じブラウザ内のユーザーのみ家族に参加できます。別端末との共有には対応していません。";
+  "家族グループはクラウドに保存されます。タスクはこの端末のブラウザに保存されています。";

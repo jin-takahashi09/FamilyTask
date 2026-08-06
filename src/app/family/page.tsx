@@ -53,6 +53,7 @@ function FamilyPageContent() {
   const [removeTarget, setRemoveTarget] = useState<string | null>(null);
   const [transferTarget, setTransferTarget] = useState<string | null>(null);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
 
   if (!currentUser || !currentFamily || !currentMembership) {
     return (
@@ -93,10 +94,13 @@ function FamilyPageContent() {
     router.push("/");
   };
 
-  const handleCreate = (e: FormEvent) => {
+  const handleCreate = async (e: FormEvent) => {
     e.preventDefault();
+    if (submitting) return;
     resetMessages();
-    const result = createFamily(familyName);
+    setSubmitting(true);
+    const result = await createFamily(familyName);
+    setSubmitting(false);
     if (!result.success) {
       setError(result.error);
       return;
@@ -107,10 +111,13 @@ function FamilyPageContent() {
     router.push("/");
   };
 
-  const handleJoin = (e: FormEvent) => {
+  const handleJoin = async (e: FormEvent) => {
     e.preventDefault();
+    if (submitting) return;
     resetMessages();
-    const result = joinFamilyByInviteCode(inviteCode);
+    setSubmitting(true);
+    const result = await joinFamilyByInviteCode(inviteCode);
+    setSubmitting(false);
     if (!result.success) {
       setError(result.error);
       return;
@@ -131,9 +138,12 @@ function FamilyPageContent() {
     }
   };
 
-  const handleRegenerate = () => {
+  const handleRegenerate = async () => {
+    if (submitting) return;
     resetMessages();
-    const result = regenerateInviteCode();
+    setSubmitting(true);
+    const result = await regenerateInviteCode();
+    setSubmitting(false);
     if (!result.success) {
       setError(result.error);
       return;
@@ -141,9 +151,12 @@ function FamilyPageContent() {
     setMessage("招待コードを再発行しました");
   };
 
-  const handleRemoveMember = (userId: string) => {
+  const handleRemoveMember = async (userId: string) => {
+    if (submitting) return;
     resetMessages();
-    const result = removeFamilyMember(userId);
+    setSubmitting(true);
+    const result = await removeFamilyMember(userId);
+    setSubmitting(false);
     if (!result.success) {
       setError(result.error);
       return;
@@ -152,9 +165,12 @@ function FamilyPageContent() {
     setMessage("メンバーをグループから外しました");
   };
 
-  const handleTransfer = (userId: string) => {
+  const handleTransfer = async (userId: string) => {
+    if (submitting) return;
     resetMessages();
-    const result = transferOwnership(userId);
+    setSubmitting(true);
+    const result = await transferOwnership(userId);
+    setSubmitting(false);
     if (!result.success) {
       setError(result.error);
       return;
@@ -163,9 +179,12 @@ function FamilyPageContent() {
     setMessage("オーナー権限を移譲しました");
   };
 
-  const handleLeave = () => {
+  const handleLeave = async () => {
+    if (submitting) return;
     resetMessages();
-    const result = leaveFamily();
+    setSubmitting(true);
+    const result = await leaveFamily();
+    setSubmitting(false);
     setLeaveDialogOpen(false);
     if (!result.success) {
       setError(result.error);
@@ -174,9 +193,12 @@ function FamilyPageContent() {
     router.push(result.redirectTo ?? "/");
   };
 
-  const handleDelete = (confirmName: string) => {
+  const handleDelete = async (confirmName: string) => {
+    if (submitting) return;
     resetMessages();
-    const result = deleteFamily(confirmName);
+    setSubmitting(true);
+    const result = await deleteFamily(confirmName);
+    setSubmitting(false);
     setDeleteDialogOpen(false);
     if (!result.success) {
       setError(result.error);

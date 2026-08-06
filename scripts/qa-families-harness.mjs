@@ -1,9 +1,6 @@
 /**
  * Starts isolated Next.js + Laravel servers against the Firebase Auth emulator,
- * then runs scripts/qa-multi-group.mjs.
- *
- * Invoked via: npm run qa:multi-group
- * (firebase emulators:exec sets FIREBASE_AUTH_EMULATOR_HOST)
+ * then runs scripts/qa-families-e2e.mjs.
  */
 import { spawn } from "node:child_process";
 import path from "node:path";
@@ -80,22 +77,18 @@ function runAndWait(label, command, args, options = {}) {
 
 async function main() {
   console.log(`Firebase Auth emulator: ${emulatorHost}`);
-
   console.log("Building Next.js for QA emulator run...");
+  await runAndWait("clean", "rm", ["-rf", ".next"], { cwd: root });
   await runAndWait("build", "npm", ["run", "build"], {
     cwd: root,
     env: { ...process.env, ...demoFirebaseEnv },
   });
-
-  console.log(`Starting Next.js on http://127.0.0.1:${QA_PORT}`);
 
   startProc("next", "npx", ["next", "start", "-p", QA_PORT], {
     cwd: root,
     env: { ...process.env, ...demoFirebaseEnv },
   });
   await waitFor(`http://127.0.0.1:${QA_PORT}/login`);
-
-  console.log(`Starting Laravel on http://127.0.0.1:${API_PORT}`);
 
   startProc(
     "laravel",
@@ -118,16 +111,16 @@ async function main() {
     },
   );
   await waitFor(`http://127.0.0.1:${API_PORT}/api/health`);
-  await new Promise((resolve) => setTimeout(resolve, 1500));
-
-  console.log("Running multi-group QA...\n");
+  await new Promise((resolve) => setTimeout(resolve, 3000));
 
   return new Promise((resolve) => {
-    const qa = spawn("node", ["scripts/qa-multi-group.mjs"], {
+    const qa = spawn("node", ["scripts/qa-families-e2e.mjs"], {
       cwd: root,
       env: {
         ...process.env,
         QA_BASE_URL: `http://127.0.0.1:${QA_PORT}`,
+        QA_API_BASE_URL: `http://127.0.0.1:${API_PORT}`,
+        FIREBASE_AUTH_EMULATOR_HOST: emulatorHost,
       },
       stdio: "inherit",
     });

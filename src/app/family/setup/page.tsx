@@ -16,6 +16,7 @@ function FamilySetupContent() {
   const [familyName, setFamilyName] = useState("");
   const [inviteCode, setInviteCode] = useState("");
   const [error, setError] = useState("");
+  const [submitting, setSubmitting] = useState(false);
 
   useEffect(() => {
     if (hasFamily) {
@@ -26,10 +27,13 @@ function FamilySetupContent() {
   if (!currentUser) return null;
   if (hasFamily) return null;
 
-  const handleCreate = (e: FormEvent) => {
+  const handleCreate = async (e: FormEvent) => {
     e.preventDefault();
+    if (submitting) return;
     setError("");
-    const result = createFamily(familyName);
+    setSubmitting(true);
+    const result = await createFamily(familyName);
+    setSubmitting(false);
     if (!result.success) {
       setError(result.error);
       return;
@@ -37,10 +41,13 @@ function FamilySetupContent() {
     router.push("/");
   };
 
-  const handleJoin = (e: FormEvent) => {
+  const handleJoin = async (e: FormEvent) => {
     e.preventDefault();
+    if (submitting) return;
     setError("");
-    const result = joinFamilyByInviteCode(inviteCode);
+    setSubmitting(true);
+    const result = await joinFamilyByInviteCode(inviteCode);
+    setSubmitting(false);
     if (!result.success) {
       setError(result.error);
       return;
@@ -110,7 +117,8 @@ function FamilySetupContent() {
             </label>
             <button
               type="submit"
-              className="rounded-xl bg-gradient-to-r from-emerald-400 to-teal-400 px-4 py-3 font-bold text-white shadow-md shadow-emerald-200 hover:from-emerald-500 hover:to-teal-500"
+              disabled={submitting}
+              className="rounded-xl bg-gradient-to-r from-emerald-400 to-teal-400 px-4 py-3 font-bold text-white shadow-md shadow-emerald-200 hover:from-emerald-500 hover:to-teal-500 disabled:opacity-60"
             >
               家族グループを作成
             </button>
@@ -131,7 +139,8 @@ function FamilySetupContent() {
             </label>
             <button
               type="submit"
-              className="rounded-xl bg-gradient-to-r from-emerald-400 to-teal-400 px-4 py-3 font-bold text-white shadow-md shadow-emerald-200 hover:from-emerald-500 hover:to-teal-500"
+              disabled={submitting}
+              className="rounded-xl bg-gradient-to-r from-emerald-400 to-teal-400 px-4 py-3 font-bold text-white shadow-md shadow-emerald-200 hover:from-emerald-500 hover:to-teal-500 disabled:opacity-60"
             >
               参加する
             </button>

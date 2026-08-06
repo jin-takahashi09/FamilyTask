@@ -14,7 +14,6 @@ import {
 import { DEFAULT_STATE, loadState, saveState } from "@/lib/storage";
 import {
   attachOrphanTasksToFamily,
-  generateUniqueInviteCode,
   getFamilyMembers,
   getFamilyTasks,
   getMembershipInFamily,
@@ -68,6 +67,21 @@ import {
   signOut,
   type User as FirebaseUser,
 } from "firebase/auth";
+import {
+  apiMemberToUserProfile,
+  createFamily as apiCreateFamily,
+  deleteFamily as apiDeleteFamily,
+  FamilyActionError,
+  FamilyFetchError,
+  fetchFamilyMembers,
+  fetchMyFamilies,
+  joinFamilyByInviteCode as apiJoinFamily,
+  leaveFamily as apiLeaveFamily,
+  regenerateInviteCode as apiRegenerateInviteCode,
+  removeFamilyMember as apiRemoveFamilyMember,
+  transferFamilyOwnership as apiTransferOwnership,
+  type ApiFamilyMember,
+} from "@/lib/api/families";
 
 type LoginResult =
   | { success: true; profileCompleted: boolean; hasFamily: boolean }
@@ -96,6 +110,7 @@ type AppContextValue = {
   isAuthenticated: boolean;
   hasFamily: boolean;
   isReady: boolean;
+  familiesLoading: boolean;
   profileLoadError: string | null;
   login: (email: string, password: string) => Promise<LoginResult>;
   register: (
@@ -113,13 +128,13 @@ type AppContextValue = {
     data: ProfileFormData,
   ) => Promise<ProfileActionResult>;
   switchFamily: (familyId: string) => FamilyActionResult;
-  createFamily: (name: string) => FamilyActionResult;
-  joinFamilyByInviteCode: (inviteCode: string) => FamilyActionResult;
-  leaveFamily: () => FamilyActionResult;
-  removeFamilyMember: (userId: string) => FamilyActionResult;
-  transferOwnership: (targetUserId: string) => FamilyActionResult;
-  deleteFamily: (confirmName: string) => FamilyActionResult;
-  regenerateInviteCode: () => FamilyActionResult & { inviteCode?: string };
+  createFamily: (name: string) => Promise<FamilyActionResult>;
+  joinFamilyByInviteCode: (inviteCode: string) => Promise<FamilyActionResult>;
+  leaveFamily: () => Promise<FamilyActionResult>;
+  removeFamilyMember: (userId: string) => Promise<FamilyActionResult>;
+  transferOwnership: (targetUserId: string) => Promise<FamilyActionResult>;
+  deleteFamily: (confirmName: string) => Promise<FamilyActionResult>;
+  regenerateInviteCode: () => Promise<FamilyActionResult & { inviteCode?: string }>;
   isFamilyMember: (userId: string) => boolean;
   getOtherFamilyMembers: () => UserProfile[];
   addTask: (
@@ -164,7 +179,7 @@ function updateSessionFamily(
 }
 
 function normalizeActiveFamily(state: AppState): AppState {
-  if (!state.session?.userId) return state;
+  if (!state.session?.userId || state.memberships.length === 0) return state;
   const resolved = resolveActiveFamilyId(
     state.session.userId,
     state.memberships,
@@ -180,6 +195,54 @@ function useIsClientReady() {
     () => () => {},
     () => true,
     () => false,
+  );
+}
+
+function mergeMemberProfiles(
+  prev: AppState,
+  members: ApiFamilyMember[],
+): AppState {
+  const nextUsers = [...prev.users];
+
+  for (const member of members) {
+    const profile = apiMemberToUserProfile(member);
+    const existingIndex = nextUsers.findIndex((user) => user.id === profile.id);
+
+    if (existingIndex === -1) {
+      nextUsers.push(profile);
+      continue;
+    }
+
+    const existing = nextUsers[existingIndex];
+    nextUsers[existingIndex] = {
+      ...existing,
+      displayName: profile.displayName || existing.displayName,
+      email: profile.email || existing.email,
+      profileCompleted: profile.profileCompleted || existing.profileCompleted,
+      profileImage: existing.profileImage ?? profile.profileImage,
+    };
+  }
+
+  return { ...prev, users: nextUsers };
+}
+
+function applyFamiliesData(
+  prev: AppState,
+  userId: string,
+  families: FamilyGroup[],
+  memberships: FamilyMembership[],
+): AppState {
+  const activeFamilyId = resolveActiveFamilyId(
+    userId,
+    memberships,
+    prev.session?.userId === userId ? prev.session.activeFamilyId : null,
+    prev.activeFamilyPreferences[userId],
+  );
+
+  return updateSessionFamily(
+    { ...prev, families, memberships },
+    userId,
+    activeFamilyId,
   );
 }
 
@@ -234,8 +297,17 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const clientReady = useIsClientReady();
   const [authInitialized, setAuthInitialized] = useState(false);
   const [profileLoadError, setProfileLoadError] = useState<string | null>(null);
+  const [familiesLoading, setFamiliesLoading] = useState(false);
+  const [activeFamilyMembers, setActiveFamilyMembers] = useState<ApiFamilyMember[]>(
+    [],
+  );
   const sessionUserIdRef = useRef<string | null>(null);
+  const familiesSyncedUidRef = useRef<string | null>(null);
   const syncSessionPromiseRef = useRef<Promise<LoginResult> | null>(null);
+  const membersFetchRef = useRef<{
+    familyId: string;
+    promise: Promise<void>;
+  } | null>(null);
   const firebaseConfigured = isFirebaseConfigured();
   const isReady =
     clientReady && (authInitialized || !firebaseConfigured);
@@ -254,8 +326,67 @@ export function AppProvider({ children }: { children: ReactNode }) {
   );
 
   useEffect(() => {
-    if (isReady) saveState(state);
+    if (!clientReady || typeof window === "undefined") return;
+
+    const win = window as unknown as {
+      __familyTaskGetQA?: () => {
+        familiesLoading: boolean;
+        isReady: boolean;
+        authInitialized: boolean;
+      };
+    };
+    win.__familyTaskGetQA = () => ({
+      familiesLoading,
+      isReady,
+      authInitialized,
+      activeFamilyMemberCount: activeFamilyMembers.length,
+    });
+  }, [clientReady, familiesLoading, isReady, authInitialized, activeFamilyMembers.length]);
+
+  useEffect(() => {
+    if (!isReady) return;
+    saveState(state);
+
+    if (typeof window !== "undefined") {
+      (
+        window as unknown as {
+          __familyTaskGetState?: () => AppState;
+        }
+      ).__familyTaskGetState = () => state;
+    }
   }, [state, isReady]);
+
+  const refreshFamilyMembers = useCallback(
+    async (familyId: string, options: { force?: boolean } = {}) => {
+      if (
+        !options.force &&
+        membersFetchRef.current?.familyId === familyId
+      ) {
+        return membersFetchRef.current.promise;
+      }
+
+      const promise = (async () => {
+        try {
+          const members = await fetchFamilyMembers(familyId);
+          updateState((prev) => mergeMemberProfiles(prev, members));
+          setActiveFamilyMembers(members);
+        } catch {
+          // member list refresh failure is non-fatal
+        }
+      })();
+
+      membersFetchRef.current = { familyId, promise };
+
+      try {
+        await promise;
+      } finally {
+        if (membersFetchRef.current?.familyId === familyId) {
+          membersFetchRef.current = null;
+        }
+      }
+    },
+    [updateState],
+  );
 
   const syncSessionWithFirebase = useCallback(
     async (firebaseUser: FirebaseUser | null): Promise<LoginResult> => {
@@ -265,6 +396,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
       const syncPromise = (async (): Promise<LoginResult> => {
         if (!firebaseUser) {
+          setFamiliesLoading(false);
+          familiesSyncedUidRef.current = null;
           updateState((prev) => {
             const userId = prev.session?.userId;
             const activeFamilyId = prev.session?.activeFamilyId;
@@ -306,6 +439,42 @@ export function AppProvider({ children }: { children: ReactNode }) {
             sessionUserIdRef.current = verified.uid;
             return built.state;
           });
+
+          try {
+            setFamiliesLoading(true);
+            const familiesData = await fetchMyFamilies();
+
+            updateState((prev) =>
+              applyFamiliesData(
+                prev,
+                verified.uid,
+                familiesData.families,
+                familiesData.memberships,
+              ),
+            );
+
+            updateState((prev) => {
+              const user = prev.users.find((entry) => entry.id === verified.uid);
+              result = {
+                success: true,
+                profileCompleted: Boolean(user?.profileCompleted),
+                hasFamily: familiesData.memberships.length > 0,
+              };
+              return prev;
+            });
+            familiesSyncedUidRef.current = verified.uid;
+          } catch (error) {
+            if (error instanceof FamilyFetchError) {
+              setProfileLoadError((current) => current ?? error.message);
+            } else if (error instanceof ApiError && error.status !== 401) {
+              setProfileLoadError(
+                (current) => current ?? "所属グループを取得できませんでした",
+              );
+            }
+          } finally {
+            setFamiliesLoading(false);
+          }
+
           setProfileLoadError(nextProfileLoadError);
           return result;
         } catch (error) {
@@ -340,14 +509,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
   );
 
   useEffect(() => {
-    sessionUserIdRef.current = state.session?.userId ?? null;
-  }, [state.session?.userId]);
-
-  useEffect(() => {
     if (!clientReady || !firebaseConfigured) return;
 
     const unsubscribe = onAuthStateChanged(getFirebaseAuth(), async (user) => {
-      if (user && sessionUserIdRef.current === user.uid) {
+      if (user && familiesSyncedUidRef.current === user.uid) {
         setAuthInitialized(true);
         return;
       }
@@ -358,12 +523,22 @@ export function AppProvider({ children }: { children: ReactNode }) {
     return unsubscribe;
   }, [clientReady, firebaseConfigured, syncSessionWithFirebase]);
 
+  useEffect(() => {
+    sessionUserIdRef.current = state.session?.userId ?? null;
+  }, [state.session?.userId]);
+
   const currentUser = useMemo(() => {
     if (!state.session) return null;
     return state.users.find((u) => u.id === state.session?.userId) ?? null;
   }, [state.session, state.users]);
 
   const activeFamilyId = state.session?.activeFamilyId ?? null;
+
+  useEffect(() => {
+    if (!activeFamilyId || !isReady || familiesLoading) return;
+    setActiveFamilyMembers([]);
+    void refreshFamilyMembers(activeFamilyId);
+  }, [activeFamilyId, isReady, familiesLoading, refreshFamilyMembers]);
 
   const userFamilies = useMemo(() => {
     if (!currentUser) return [];
@@ -390,13 +565,39 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   const familyMembers = useMemo(() => {
     if (!currentFamilyId) return [];
-    const members = getFamilyMembers(
-      state.users,
+
+    const profiles = activeFamilyMembers
+      .map(apiMemberToUserProfile)
+      .filter((user) => user.profileCompleted);
+    const memberMemberships: FamilyMembership[] = activeFamilyMembers.map(
+      (member) => ({
+        id: `${currentFamilyId}_${member.userId}`,
+        familyId: currentFamilyId,
+        userId: member.userId,
+        role: member.role,
+        joinedAt: member.joinedAt,
+      }),
+    );
+
+    if (profiles.length > 0) {
+      return sortMembersForDisplay(
+        profiles,
+        memberMemberships,
+        currentFamilyId,
+      );
+    }
+
+    return sortMembersForDisplay(
+      getFamilyMembers(state.users, state.memberships, currentFamilyId),
       state.memberships,
       currentFamilyId,
     );
-    return sortMembersForDisplay(members, state.memberships, currentFamilyId);
-  }, [state.users, state.memberships, currentFamilyId]);
+  }, [
+    activeFamilyMembers,
+    currentFamilyId,
+    state.memberships,
+    state.users,
+  ]);
 
   const familyTasks = useMemo(() => {
     if (!currentFamilyId) return [];
@@ -482,6 +683,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   const logout = useCallback(async () => {
     setProfileLoadError(null);
+    setActiveFamilyMembers([]);
+    familiesSyncedUidRef.current = null;
     updateState((prev) => {
       const userId = prev.session?.userId;
       const activeFamilyId = prev.session?.activeFamilyId;
@@ -568,273 +771,284 @@ export function AppProvider({ children }: { children: ReactNode }) {
       return updateSessionFamily(prev, userId, familyId);
     });
 
+    if (result.success) {
+      void refreshFamilyMembers(familyId);
+    }
+
     return result;
-  }, [updateState]);
+  }, [refreshFamilyMembers, updateState]);
 
   const createFamily = useCallback(
-    (name: string): FamilyActionResult => {
+    async (name: string): Promise<FamilyActionResult> => {
       const trimmed = name.trim();
-      if (!trimmed) return { success: false, error: "家族名を入力してください" };
+      if (!trimmed) {
+        return { success: false, error: "家族名を入力してください" };
+      }
 
-      let result: FamilyActionResult = { success: false, error: "不明なエラー" };
+      const userId = state.session?.userId;
+      if (!userId) {
+        return { success: false, error: "ログインが必要です" };
+      }
 
-      updateState((prev) => {
-        const userId = prev.session?.userId;
-        if (!userId) {
-          result = { success: false, error: "ログインが必要です" };
-          return prev;
-        }
+      try {
+        const created = await apiCreateFamily(trimmed);
+        const nextActiveId = created.family.id;
 
-        const familyId = crypto.randomUUID();
-        const inviteCode = generateUniqueInviteCode(prev.families);
-        const family: FamilyGroup = {
-          id: familyId,
-          name: trimmed,
-          inviteCode,
-          ownerId: userId,
-          createdAt: new Date().toISOString(),
-        };
-        const membership: FamilyMembership = {
-          id: crypto.randomUUID(),
-          familyId,
-          userId,
-          role: "owner",
-          joinedAt: new Date().toISOString(),
-        };
-
-        result = { success: true };
-
-        return updateSessionFamily(
-          {
-            ...prev,
-            families: [...prev.families, family],
-            memberships: [...prev.memberships, membership],
-            tasks: attachOrphanTasksToFamily(prev.tasks, userId, familyId),
-          },
-          userId,
-          familyId,
+        updateState((prev) =>
+          updateSessionFamily(
+            {
+              ...prev,
+              families: [
+                ...prev.families.filter((f) => f.id !== created.family.id),
+                created.family,
+              ],
+              memberships: [
+                ...prev.memberships.filter(
+                  (m) => !(m.userId === userId && m.familyId === created.family.id),
+                ),
+                created.membership,
+              ],
+              tasks: attachOrphanTasksToFamily(prev.tasks, userId, created.family.id),
+            },
+            userId,
+            nextActiveId,
+          ),
         );
-      });
 
-      return result;
+        await refreshFamilyMembers(created.family.id);
+        return { success: true };
+      } catch (error) {
+        if (error instanceof FamilyActionError) {
+          return { success: false, error: error.message };
+        }
+        return { success: false, error: "グループを作成できませんでした" };
+      }
     },
-    [updateState],
+    [refreshFamilyMembers, state.session?.userId, updateState],
   );
 
   const joinFamilyByInviteCode = useCallback(
-    (code: string): FamilyActionResult => {
+    async (code: string): Promise<FamilyActionResult> => {
       const normalized = code.trim().toUpperCase();
       if (!normalized) {
         return { success: false, error: "招待コードを入力してください" };
       }
 
-      let result: FamilyActionResult = {
-        success: false,
-        error: "招待コードが正しくありません",
-      };
+      const userId = state.session?.userId;
+      if (!userId) {
+        return { success: false, error: "ログインが必要です" };
+      }
 
-      updateState((prev) => {
-        const userId = prev.session?.userId;
-        if (!userId) {
-          result = { success: false, error: "ログインが必要です" };
-          return prev;
-        }
+      try {
+        const joined = await apiJoinFamily(normalized);
 
-        const family = prev.families.find(
-          (f) => f.inviteCode.toUpperCase() === normalized,
+        updateState((prev) =>
+          updateSessionFamily(
+            {
+              ...prev,
+              families: [
+                ...prev.families.filter((f) => f.id !== joined.family.id),
+                joined.family,
+              ],
+              memberships: [
+                ...prev.memberships.filter(
+                  (m) => !(m.userId === userId && m.familyId === joined.family.id),
+                ),
+                joined.membership,
+              ],
+              tasks: attachOrphanTasksToFamily(prev.tasks, userId, joined.family.id),
+            },
+            userId,
+            joined.family.id,
+          ),
         );
-        if (!family) {
-          result = { success: false, error: "招待コードが正しくありません" };
-          return prev;
+
+        await refreshFamilyMembers(joined.family.id);
+        return { success: true };
+      } catch (error) {
+        if (error instanceof FamilyActionError) {
+          return { success: false, error: error.message };
         }
-
-        const existing = getMembershipInFamily(
-          prev.memberships,
-          userId,
-          family.id,
-        );
-        if (existing) {
-          result = {
-            success: false,
-            error: "このグループには既に参加しています",
-          };
-          return prev;
-        }
-
-        const membership: FamilyMembership = {
-          id: crypto.randomUUID(),
-          familyId: family.id,
-          userId,
-          role: "member",
-          joinedAt: new Date().toISOString(),
-        };
-
-        result = { success: true };
-
-        return updateSessionFamily(
-          {
-            ...prev,
-            memberships: [...prev.memberships, membership],
-            tasks: attachOrphanTasksToFamily(prev.tasks, userId, family.id),
-          },
-          userId,
-          family.id,
-        );
-      });
-
-      return result;
+        return { success: false, error: "グループへの参加に失敗しました" };
+      }
     },
-    [updateState],
+    [refreshFamilyMembers, state.session?.userId, updateState],
   );
 
-  const leaveFamily = useCallback((): FamilyActionResult => {
-    let result: FamilyActionResult = { success: false, error: "不明なエラー" };
+  const leaveFamily = useCallback(async (): Promise<FamilyActionResult> => {
+    const userId = state.session?.userId;
+    const familyId = state.session?.activeFamilyId;
+    if (!userId || !familyId) {
+      return { success: false, error: "操作できません" };
+    }
 
-    updateState((prev) => {
-      const userId = prev.session?.userId;
-      const familyId = prev.session?.activeFamilyId;
-      if (!userId || !familyId) {
-        result = { success: false, error: "操作できません" };
-        return prev;
-      }
+    const membership = getMembershipInFamily(state.memberships, userId, familyId);
+    if (!membership) {
+      return { success: false, error: "このグループに所属していません" };
+    }
 
-      const membership = getMembershipInFamily(prev.memberships, userId, familyId);
-      if (!membership) {
-        result = { success: false, error: "このグループに所属していません" };
-        return prev;
-      }
-
-      if (membership.role === "owner") {
-        const otherMembers = prev.memberships.filter(
-          (m) => m.familyId === familyId && m.userId !== userId,
-        );
-        if (otherMembers.length > 0) {
-          result = {
-            success: false,
-            error:
-              "オーナーは退出する前に、オーナー権限の移譲またはグループの削除を行ってください",
-          };
-          return prev;
-        }
-        result = {
+    if (membership.role === "owner") {
+      const otherMembers = state.memberships.filter(
+        (m) => m.familyId === familyId && m.userId !== userId,
+      );
+      if (otherMembers.length > 0) {
+        return {
           success: false,
           error:
-            "オーナーは退出する前に、グループの削除を行うか、他メンバーへオーナー権限を移譲してください",
+            "オーナーは退出する前に、オーナー権限の移譲またはグループの削除を行ってください",
         };
-        return prev;
       }
+      return {
+        success: false,
+        error:
+          "オーナーは退出する前に、グループの削除を行うか、他メンバーへオーナー権限を移譲してください",
+      };
+    }
 
-      const newMemberships = prev.memberships.filter(
+    try {
+      await apiLeaveFamily(familyId);
+
+      const newMemberships = state.memberships.filter(
         (m) => !(m.userId === userId && m.familyId === familyId),
       );
       const remaining = getUserMemberships(newMemberships, userId);
       const newActiveId = remaining[0]?.familyId ?? null;
 
-      result = {
+      updateState((prev) =>
+        updateSessionFamily(
+          {
+            ...prev,
+            memberships: prev.memberships.filter(
+              (m) => !(m.userId === userId && m.familyId === familyId),
+            ),
+          },
+          userId,
+          newActiveId,
+        ),
+      );
+
+      if (newActiveId) {
+        await refreshFamilyMembers(newActiveId);
+      }
+
+      return {
         success: true,
         redirectTo: newActiveId ? "/" : "/family/setup",
       };
-
-      return updateSessionFamily(
-        { ...prev, memberships: newMemberships },
-        userId,
-        newActiveId,
-      );
-    });
-
-    return result;
-  }, [updateState]);
+    } catch (error) {
+      if (error instanceof FamilyActionError) {
+        return { success: false, error: error.message };
+      }
+      return { success: false, error: "グループから退出できませんでした" };
+    }
+  }, [
+    refreshFamilyMembers,
+    state.memberships,
+    state.session?.activeFamilyId,
+    state.session?.userId,
+    updateState,
+  ]);
 
   const removeFamilyMember = useCallback(
-    (targetUserId: string): FamilyActionResult => {
-      let result: FamilyActionResult = { success: false, error: "不明なエラー" };
+    async (targetUserId: string): Promise<FamilyActionResult> => {
+      const userId = state.session?.userId;
+      const familyId = state.session?.activeFamilyId;
+      if (!userId || !familyId) {
+        return { success: false, error: "操作できません" };
+      }
 
-      updateState((prev) => {
-        const userId = prev.session?.userId;
-        const familyId = prev.session?.activeFamilyId;
-        if (!userId || !familyId) {
-          result = { success: false, error: "操作できません" };
-          return prev;
-        }
+      const ownerMembership = getMembershipInFamily(
+        state.memberships,
+        userId,
+        familyId,
+      );
+      if (!ownerMembership || ownerMembership.role !== "owner") {
+        return { success: false, error: "オーナーのみ実行できます" };
+      }
 
-        const ownerMembership = getMembershipInFamily(
-          prev.memberships,
-          userId,
-          familyId,
+      if (targetUserId === userId) {
+        return { success: false, error: "自分自身は削除できません" };
+      }
+
+      const targetIsMember = activeFamilyMembers.some(
+        (member) => member.userId === targetUserId,
+      );
+      if (!targetIsMember) {
+        return { success: false, error: "メンバーが見つかりません" };
+      }
+
+      try {
+        await apiRemoveFamilyMember(familyId, targetUserId);
+        setActiveFamilyMembers((prev) =>
+          prev.filter((member) => member.userId !== targetUserId),
         );
-        if (!ownerMembership || ownerMembership.role !== "owner") {
-          result = { success: false, error: "オーナーのみ実行できます" };
-          return prev;
-        }
-
-        if (targetUserId === userId) {
-          result = { success: false, error: "自分自身は削除できません" };
-          return prev;
-        }
-
-        if (!isUserInFamily(prev.memberships, targetUserId, familyId)) {
-          result = { success: false, error: "メンバーが見つかりません" };
-          return prev;
-        }
-
-        result = { success: true };
-
-        return {
+        membersFetchRef.current = null;
+        updateState((prev) => ({
           ...prev,
           memberships: prev.memberships.filter(
             (m) => !(m.userId === targetUserId && m.familyId === familyId),
           ),
-        };
-      });
-
-      return result;
+        }));
+        await refreshFamilyMembers(familyId, { force: true });
+        return { success: true };
+      } catch (error) {
+        if (error instanceof FamilyActionError) {
+          return { success: false, error: error.message };
+        }
+        return { success: false, error: "メンバーを削除できませんでした" };
+      }
     },
-    [updateState],
+    [
+      activeFamilyMembers,
+      refreshFamilyMembers,
+      state.memberships,
+      state.session?.activeFamilyId,
+      state.session?.userId,
+      updateState,
+    ],
   );
 
   const transferOwnership = useCallback(
-    (targetUserId: string): FamilyActionResult => {
-      let result: FamilyActionResult = { success: false, error: "不明なエラー" };
+    async (targetUserId: string): Promise<FamilyActionResult> => {
+      const userId = state.session?.userId;
+      const familyId = state.session?.activeFamilyId;
+      if (!userId || !familyId) {
+        return { success: false, error: "操作できません" };
+      }
 
-      updateState((prev) => {
-        const userId = prev.session?.userId;
-        const familyId = prev.session?.activeFamilyId;
-        if (!userId || !familyId) {
-          result = { success: false, error: "操作できません" };
-          return prev;
-        }
+      const ownerMembership = getMembershipInFamily(
+        state.memberships,
+        userId,
+        familyId,
+      );
+      if (!ownerMembership || ownerMembership.role !== "owner") {
+        return { success: false, error: "オーナーのみ実行できます" };
+      }
 
-        const ownerMembership = getMembershipInFamily(
-          prev.memberships,
-          userId,
-          familyId,
-        );
-        if (!ownerMembership || ownerMembership.role !== "owner") {
-          result = { success: false, error: "オーナーのみ実行できます" };
-          return prev;
-        }
+      if (targetUserId === userId) {
+        return { success: false, error: "自分自身には移譲できません" };
+      }
 
-        if (targetUserId === userId) {
-          result = { success: false, error: "自分自身には移譲できません" };
-          return prev;
-        }
+      const targetMember = activeFamilyMembers.find(
+        (member) => member.userId === targetUserId,
+      );
+      if (!targetMember || targetMember.role !== "member") {
+        return { success: false, error: "メンバーが見つかりません" };
+      }
 
-        const targetMembership = getMembershipInFamily(
-          prev.memberships,
-          targetUserId,
-          familyId,
-        );
-        if (!targetMembership) {
-          result = { success: false, error: "メンバーが見つかりません" };
-          return prev;
-        }
-
-        result = { success: true };
-
-        return {
+      try {
+        const updated = await apiTransferOwnership(familyId, targetUserId);
+        updateState((prev) => ({
           ...prev,
           families: prev.families.map((f) =>
-            f.id === familyId ? { ...f, ownerId: targetUserId } : f,
+            f.id === familyId
+              ? {
+                  ...f,
+                  ownerId: updated.ownerId,
+                  inviteCode: updated.inviteCode,
+                  updatedAt: updated.updatedAt,
+                }
+              : f,
           ),
           memberships: prev.memberships.map((m) => {
             if (m.familyId !== familyId) return m;
@@ -844,124 +1058,149 @@ export function AppProvider({ children }: { children: ReactNode }) {
             }
             return m;
           }),
-        };
-      });
-
-      return result;
+        }));
+        await refreshFamilyMembers(familyId, { force: true });
+        return { success: true };
+      } catch (error) {
+        if (error instanceof FamilyActionError) {
+          return { success: false, error: error.message };
+        }
+        return { success: false, error: "オーナー権限を移譲できませんでした" };
+      }
     },
-    [updateState],
+    [
+      activeFamilyMembers,
+      refreshFamilyMembers,
+      state.memberships,
+      state.session?.activeFamilyId,
+      state.session?.userId,
+      updateState,
+    ],
   );
 
   const deleteFamily = useCallback(
-    (confirmName: string): FamilyActionResult => {
-      let result: FamilyActionResult = { success: false, error: "不明なエラー" };
-
-      updateState((prev) => {
-        const userId = prev.session?.userId;
-        const familyId = prev.session?.activeFamilyId;
-        if (!userId || !familyId) {
-          result = { success: false, error: "操作できません" };
-          return prev;
-        }
-
-        const family = prev.families.find((f) => f.id === familyId);
-        if (!family) {
-          result = { success: false, error: "グループが見つかりません" };
-          return prev;
-        }
-
-        const ownerMembership = getMembershipInFamily(
-          prev.memberships,
-          userId,
-          familyId,
-        );
-        if (!ownerMembership || ownerMembership.role !== "owner") {
-          result = { success: false, error: "オーナーのみ削除できます" };
-          return prev;
-        }
-
-        if (confirmName.trim() !== family.name) {
-          result = {
-            success: false,
-            error: "グループ名が一致しません。削除を中止しました",
-          };
-          return prev;
-        }
-
-        const remaining = getUserMemberships(
-          prev.memberships.filter((m) => m.familyId !== familyId),
-          userId,
-        );
-        const newActiveId = remaining[0]?.familyId ?? null;
-
-        result = {
-          success: true,
-          redirectTo: newActiveId ? "/" : "/family/setup",
-        };
-
-        return updateSessionFamily(
-          {
-            ...prev,
-            families: prev.families.filter((f) => f.id !== familyId),
-            memberships: prev.memberships.filter((m) => m.familyId !== familyId),
-            tasks: prev.tasks.filter((t) => t.familyId !== familyId),
-          },
-          userId,
-          newActiveId,
-        );
-      });
-
-      return result;
-    },
-    [updateState],
-  );
-
-  const regenerateInviteCode = useCallback((): FamilyActionResult & {
-    inviteCode?: string;
-  } => {
-    let result: FamilyActionResult & { inviteCode?: string } = {
-      success: false,
-      error: "不明なエラー",
-    };
-
-    updateState((prev) => {
-      const userId = prev.session?.userId;
-      const familyId = prev.session?.activeFamilyId;
+    async (confirmName: string): Promise<FamilyActionResult> => {
+      const userId = state.session?.userId;
+      const familyId = state.session?.activeFamilyId;
       if (!userId || !familyId) {
-        result = { success: false, error: "操作できません" };
-        return prev;
+        return { success: false, error: "操作できません" };
+      }
+
+      const family = state.families.find((f) => f.id === familyId);
+      if (!family) {
+        return { success: false, error: "グループが見つかりません" };
       }
 
       const ownerMembership = getMembershipInFamily(
-        prev.memberships,
+        state.memberships,
         userId,
         familyId,
       );
       if (!ownerMembership || ownerMembership.role !== "owner") {
-        result = { success: false, error: "オーナーのみ実行できます" };
-        return prev;
+        return { success: false, error: "オーナーのみ削除できます" };
       }
 
-      const newCode = generateUniqueInviteCode(prev.families);
-      result = { success: true, inviteCode: newCode };
+      if (confirmName.trim() !== family.name) {
+        return {
+          success: false,
+          error: "グループ名が一致しません。削除を中止しました",
+        };
+      }
 
-      return {
+      try {
+        await apiDeleteFamily(familyId, confirmName.trim());
+
+        const remaining = getUserMemberships(
+          state.memberships.filter((m) => m.familyId !== familyId),
+          userId,
+        );
+        const newActiveId = remaining[0]?.familyId ?? null;
+
+        updateState((prev) =>
+          updateSessionFamily(
+            {
+              ...prev,
+              families: prev.families.filter((f) => f.id !== familyId),
+              memberships: prev.memberships.filter((m) => m.familyId !== familyId),
+              tasks: prev.tasks.filter((t) => t.familyId !== familyId),
+            },
+            userId,
+            newActiveId,
+          ),
+        );
+
+        if (newActiveId) {
+          await refreshFamilyMembers(newActiveId);
+        }
+
+        return {
+          success: true,
+          redirectTo: newActiveId ? "/" : "/family/setup",
+        };
+      } catch (error) {
+        if (error instanceof FamilyActionError) {
+          return { success: false, error: error.message };
+        }
+        return { success: false, error: "グループを削除できませんでした" };
+      }
+    },
+    [
+      refreshFamilyMembers,
+      state.families,
+      state.memberships,
+      state.session?.activeFamilyId,
+      state.session?.userId,
+      updateState,
+    ],
+  );
+
+  const regenerateInviteCode = useCallback(async (): Promise<
+    FamilyActionResult & { inviteCode?: string }
+  > => {
+    const userId = state.session?.userId;
+    const familyId = state.session?.activeFamilyId;
+    if (!userId || !familyId) {
+      return { success: false, error: "操作できません" };
+    }
+
+    const ownerMembership = getMembershipInFamily(
+      state.memberships,
+      userId,
+      familyId,
+    );
+    if (!ownerMembership || ownerMembership.role !== "owner") {
+      return { success: false, error: "オーナーのみ実行できます" };
+    }
+
+    try {
+      const updated = await apiRegenerateInviteCode(familyId);
+      updateState((prev) => ({
         ...prev,
         families: prev.families.map((f) =>
-          f.id === familyId ? { ...f, inviteCode: newCode } : f,
+          f.id === familyId
+            ? {
+                ...f,
+                inviteCode: updated.inviteCode,
+                updatedAt: updated.updatedAt,
+              }
+            : f,
         ),
-      };
-    });
-
-    return result;
-  }, [updateState]);
+      }));
+      return { success: true, inviteCode: updated.inviteCode };
+    } catch (error) {
+      if (error instanceof FamilyActionError) {
+        return { success: false, error: error.message };
+      }
+      return { success: false, error: "招待コードを再発行できませんでした" };
+    }
+  }, [state.memberships, state.session?.activeFamilyId, state.session?.userId, updateState]);
 
   const isFamilyMemberFn = useCallback(
     (userId: string) => {
       if (!currentFamilyId) return false;
-      return isUserInFamily(state.memberships, userId, currentFamilyId);
+      return activeFamilyMembers.some((member) => member.userId === userId);
     },
-    [state.memberships, currentFamilyId],
+    [activeFamilyMembers, currentFamilyId],
   );
 
   const getOtherFamilyMembersFn = useCallback(() => {
@@ -1170,6 +1409,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       isAuthenticated: Boolean(state.session && currentUser),
       hasFamily,
       isReady,
+      familiesLoading,
       profileLoadError,
       login,
       register,
@@ -1208,6 +1448,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       familyMembers,
       hasFamily,
       isReady,
+      familiesLoading,
       profileLoadError,
       login,
       register,

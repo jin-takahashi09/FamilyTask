@@ -7,7 +7,7 @@ import type {
   TaskSortOrder,
   UserProfile,
 } from "./types";
-import { resolveActiveFamilyId, sanitizeMemberships } from "./family-utils";
+import { resolveActiveFamilyId } from "./family-utils";
 import { parseDateKey } from "./date-utils";
 import { getDay } from "date-fns";
 import { normalizeTaskSortOrder } from "./task-sort-utils";
@@ -45,39 +45,6 @@ function migrateLegacyUser(
     profileImage: null,
     profileCompleted: Boolean(legacy.name && legacy.name !== "ユーザー"),
   };
-}
-
-function migrateFamilies(raw: LegacyState): FamilyGroup[] {
-  if (!Array.isArray(raw.families)) return [];
-  return raw.families
-    .filter((f) => f && typeof f.id === "string" && typeof f.name === "string")
-    .map((f) => ({
-      id: f.id,
-      name: f.name,
-      inviteCode: f.inviteCode ?? "",
-      ownerId: f.ownerId ?? "",
-      createdAt: f.createdAt ?? new Date().toISOString(),
-    }))
-    .filter((f) => f.inviteCode && f.ownerId);
-}
-
-function migrateMemberships(raw: LegacyState): FamilyMembership[] {
-  if (!Array.isArray(raw.memberships)) return [];
-  return raw.memberships
-    .filter(
-      (m) =>
-        m &&
-        typeof m.id === "string" &&
-        typeof m.familyId === "string" &&
-        typeof m.userId === "string",
-    )
-    .map((m) => ({
-      id: m.id,
-      familyId: m.familyId,
-      userId: m.userId,
-      role: m.role === "owner" ? "owner" : "member",
-      joinedAt: m.joinedAt ?? new Date().toISOString(),
-    }));
 }
 
 function normalizeRepeatType(value: unknown): RepeatType {
@@ -163,12 +130,8 @@ export function migrateState(raw: LegacyState): AppState {
     }
   }
 
-  const families = migrateFamilies(raw);
-  const memberships = sanitizeMemberships(
-    migrateMemberships(raw),
-    users,
-    families,
-  );
+  const families: FamilyGroup[] = [];
+  const memberships: FamilyMembership[] = [];
 
   const activeFamilyPreferences: Record<string, string> =
     raw.activeFamilyPreferences &&
@@ -186,12 +149,19 @@ export function migrateState(raw: LegacyState): AppState {
       userId: string;
       activeFamilyId?: string | null;
     };
-    const activeFamilyId = resolveActiveFamilyId(
-      legacySession.userId,
-      memberships,
-      legacySession.activeFamilyId,
-      activeFamilyPreferences[legacySession.userId],
-    );
+    let activeFamilyId: string | null = null;
+
+    if (memberships.length > 0) {
+      activeFamilyId = resolveActiveFamilyId(
+        legacySession.userId,
+        memberships,
+        legacySession.activeFamilyId,
+        activeFamilyPreferences[legacySession.userId],
+      );
+    } else {
+      activeFamilyId = activeFamilyPreferences[legacySession.userId] ?? null;
+    }
+
     session = { userId: legacySession.userId, activeFamilyId };
     if (activeFamilyId) {
       activeFamilyPreferences[legacySession.userId] = activeFamilyId;
@@ -235,5 +205,12 @@ export function loadState(): AppState {
 
 export function saveState(state: AppState): void {
   if (typeof window === "undefined") return;
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+  localStorage.setItem(
+    STORAGE_KEY,
+    JSON.stringify({
+      ...state,
+      families: [],
+      memberships: [],
+    }),
+  );
 }

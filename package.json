@@ -11,7 +11,8 @@
     "qa:migration": "npx tsx scripts/qa-migration.mjs",
     "qa:recurring-tasks": "npx tsx scripts/qa-recurring-tasks.mjs",
     "qa:firebase-auth": "npx tsx scripts/qa-firebase-auth.mjs",
-    "qa:profile": "npx tsx scripts/qa-profile.mjs"
+    "qa:profile": "npx tsx scripts/qa-profile.mjs",
+    "qa:families": "firebase emulators:exec --only auth --project demo-familytask \"node scripts/qa-families-harness.mjs\" && npx tsx scripts/qa-families.mjs"
   },
   "dependencies": {
     "date-fns": "^4.4.0",

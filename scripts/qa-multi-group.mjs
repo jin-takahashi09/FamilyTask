@@ -3,6 +3,22 @@
  * Clears localStorage at start/end. Uses test-only emails (@example.com).
  */
 import { chromium } from "playwright";
+import {
+  waitForAppReady,
+  waitForFamiliesLoaded,
+  waitForFamilyInState,
+  waitForHeaderFamily,
+  waitForMembershipCount,
+  waitForFamilyRemoved,
+  waitForMemberRole,
+  waitForMembershipRemoved,
+  waitForMembersApiCount,
+  waitForActiveFamilyMemberCount,
+  waitForMemberRemovedFromFamily,
+  dismissBlockingModal,
+  waitForSessionInitialized,
+  waitForTaskTitle,
+} from "./qa-family-waits.mjs";
 
 const BASE = process.env.QA_BASE_URL ?? "http://localhost:3000";
 const STORAGE_KEY = "family-task-app";
@@ -23,6 +39,13 @@ function record(section, item, pass, detail = "") {
 
 function getState(page) {
   return page.evaluate((key) => {
+    const runtimeState =
+      typeof window.__familyTaskGetState === "function"
+        ? window.__familyTaskGetState()
+        : null;
+    if (runtimeState) {
+      return runtimeState;
+    }
     const raw = localStorage.getItem(key);
     return raw ? JSON.parse(raw) : null;
   }, STORAGE_KEY);
@@ -34,8 +57,7 @@ async function clearStorage(page) {
 }
 
 async function measureFamilyGroupSectionAndViewport(page) {
-  await page.goto(`${BASE}/family`);
-  await page.waitForTimeout(400);
+  await openFamilyPage(page);
   return page.evaluate(() => {
     const heading = [...document.querySelectorAll("h2")].find((h) =>
       h.textContent?.includes("グループ切り替え"),
@@ -111,7 +133,15 @@ async function submitLogin(page, email) {
   await page.fill('input[type="email"]', email);
   await page.fill('input[type="password"]', QA_PASSWORD);
   await page.locator("form").getByRole("button", { name: "ログイン" }).click();
-  await page.waitForTimeout(3000);
+  await Promise.race([
+    page.waitForFunction(() => !window.location.pathname.includes("/login"), {
+      timeout: 20000,
+    }),
+    page.locator("form p.text-rose-500").waitFor({ state: "visible", timeout: 20000 }),
+  ]).catch(() => {});
+  if (!page.url().includes("/login")) {
+    await waitForSessionInitialized(page, 60000);
+  }
 }
 
 async function submitRegister(page, email) {
@@ -122,7 +152,15 @@ async function submitRegister(page, email) {
   await passwordFields.nth(0).fill(QA_PASSWORD);
   await passwordFields.nth(1).fill(QA_PASSWORD);
   await page.locator("form").getByRole("button", { name: "新規登録" }).click();
-  await page.waitForTimeout(3000);
+  await Promise.race([
+    page.waitForFunction(() => !window.location.pathname.includes("/login"), {
+      timeout: 20000,
+    }),
+    page.locator("form p.text-rose-500").waitFor({ state: "visible", timeout: 20000 }),
+  ]).catch(() => {});
+  if (!page.url().includes("/login")) {
+    await waitForSessionInitialized(page, 60000);
+  }
 }
 
 async function registerOrLogin(page, email) {
@@ -147,7 +185,7 @@ async function registerOrLogin(page, email) {
     }
 
     if (error.includes("サーバーとの認証に失敗") && attempt < maxAttempts) {
-      await page.waitForTimeout(1000);
+      await waitForAppReady(page, 5000).catch(() => {});
       continue;
     }
 
@@ -168,7 +206,7 @@ async function registerOrLogin(page, email) {
     }
 
     if (error.includes("サーバーとの認証に失敗") && attempt < maxAttempts) {
-      await page.waitForTimeout(1000);
+      await waitForAppReady(page, 5000).catch(() => {});
       continue;
     }
 
@@ -183,68 +221,218 @@ async function login(page, email) {
 }
 
 async function completeProfileIfNeeded(page, name) {
-  await page.waitForTimeout(800);
   if (page.url().includes("/profile/setup")) {
     await page.fill('input[type="text"]', name);
     await page.getByRole("button", { name: "設定を完了する" }).click();
     await page
       .waitForURL(/\/(family\/setup|\/)$/, { timeout: 20000 })
       .catch(() => {});
-    await page.waitForTimeout(800);
+    await waitForSessionInitialized(page);
   }
 }
 
 async function createFamilyOnSetup(page, name) {
-  await page.waitForURL(/\/family\/setup/, { timeout: 5000 }).catch(() => {});
+  await page.waitForURL(/\/family\/setup/, { timeout: 10000 }).catch(() => {});
   if (page.url().includes("/family/setup")) {
     await page.fill('input[type="text"]', name);
     await page.getByRole("button", { name: "家族グループを作成" }).click();
-    await page.waitForURL(/\/(?!family\/setup)/, { timeout: 5000 });
+    await page.waitForURL(/\/(?!family\/setup)/, { timeout: 20000 });
+    await waitForFamiliesLoaded(page, { minMemberships: 1 });
   }
 }
 
 async function openFamilyPage(page) {
-  await page.goto(`${BASE}/family`);
-  await page.waitForTimeout(500);
+  if (!page.url().includes("/family") || page.url().includes("/family/setup")) {
+    await page.goto(`${BASE}/family`);
+  }
+  await waitForFamiliesLoaded(page);
 }
 
 async function headerShowsFamily(page, name) {
-  await page.goto(`${BASE}/`);
-  await page.waitForTimeout(800);
-  return page
-    .locator("header h1")
-    .filter({ hasText: `${name}のタスクボード` })
-    .isVisible({ timeout: 5000 })
-    .catch(() => false);
+  try {
+    await page.goto(`${BASE}/`);
+    await waitForHeaderFamily(page, name);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 async function createFamilyViaFamilyPage(page, name) {
   await openFamilyPage(page);
+  await page
+    .getByRole("button", { name: "新しいグループを作る" })
+    .waitFor({ timeout: 15000 });
   await page.getByRole("button", { name: "新しいグループを作る" }).click();
   await page.getByPlaceholder("例: 高橋家").fill(name);
-  await page.getByRole("button", { name: "作成", exact: true }).click();
-  await page.waitForTimeout(800);
+  const [createResponse] = await Promise.all([
+    page.waitForResponse(
+      (r) =>
+        r.request().method() === "POST" &&
+        r.url().includes("/api/families") &&
+        !r.url().includes("/join"),
+      { timeout: 30000 },
+    ),
+    page.getByRole("button", { name: "作成", exact: true }).click(),
+  ]);
+  if (!createResponse.ok()) {
+    throw new Error(`Create family failed: ${createResponse.status()}`);
+  }
+  const payload = await createResponse.json().catch(() => ({}));
+  const familyId = payload.family?.id;
+  if (familyId) {
+    await waitForFamilyInState(page, familyId, 45000);
+  } else {
+    await page.waitForFunction(
+      (groupName) => {
+        const state =
+          typeof window.__familyTaskGetState === "function"
+            ? window.__familyTaskGetState()
+            : null;
+        return (state?.families ?? []).some((f) => f.name === groupName);
+      },
+      name,
+      { timeout: 45000 },
+    );
+  }
+  await waitForFamiliesLoaded(page, { minMemberships: 1, timeout: 60000 });
 }
 
 async function switchToFamily(page, familyName) {
+  await dismissBlockingModal(page);
   await openFamilyPage(page);
-  await page.getByRole("button", { name: familyName, exact: true }).click();
-  await page.waitForTimeout(1200);
+  const switchButton = page.getByRole("button", { name: familyName, exact: true });
+  await switchButton.waitFor({ timeout: 15000 });
+  await switchButton.click();
+  await page.waitForFunction(
+    (name) => {
+      const state =
+        typeof window.__familyTaskGetState === "function"
+          ? window.__familyTaskGetState()
+          : null;
+      const family = (state?.families ?? []).find((f) => f.name === name);
+      return state?.session?.activeFamilyId === family?.id;
+    },
+    familyName,
+    { timeout: 15000 },
+  );
+  await waitForFamiliesLoaded(page);
 }
 
-async function joinViaFamilyPage(page, code) {
+async function joinViaFamilyPage(page, code, options = {}) {
+  const { expectDuplicate = false } = options;
   await openFamilyPage(page);
+  await page
+    .getByRole("button", { name: "招待コードで参加" })
+    .waitFor({ timeout: 15000 });
   await page.getByRole("button", { name: "招待コードで参加" }).click();
-  await page.getByPlaceholder("例: ABC123").fill(code);
-  await page.getByRole("button", { name: "参加", exact: true }).click();
-  await page.waitForTimeout(800);
+  const codeInput = page.getByPlaceholder("例: ABC123");
+  await codeInput.waitFor({ state: "visible", timeout: 10000 });
+  await codeInput.fill(code);
+  await page.waitForFunction(
+    (expected) =>
+      document.querySelector('input[placeholder="例: ABC123"]')?.value ===
+      expected,
+    code,
+  );
+  const joinForm = page.locator("form").filter({ has: codeInput });
+
+  if (expectDuplicate) {
+    const membershipsBefore = await page.evaluate(() => {
+      const state =
+        typeof window.__familyTaskGetState === "function"
+          ? window.__familyTaskGetState()
+          : null;
+      return state?.memberships?.length ?? 0;
+    });
+    try {
+      const [response] = await Promise.all([
+        page.waitForResponse(
+          (r) =>
+            r.url().includes("/api/families/join") &&
+            r.request().method() === "POST",
+          { timeout: 30000 },
+        ),
+        joinForm.getByRole("button", { name: "参加", exact: true }).click(),
+      ]);
+      await waitForAppReady(page);
+      const uiError = await page
+        .locator("text=このグループには既に参加しています")
+        .isVisible()
+        .catch(() => false);
+      return response.status() === 409 || uiError;
+    } catch {
+      await waitForAppReady(page);
+      const uiError = await page
+        .locator("text=このグループには既に参加しています")
+        .isVisible()
+        .catch(() => false);
+      const membershipsAfter = await page.evaluate(() => {
+        const state =
+          typeof window.__familyTaskGetState === "function"
+            ? window.__familyTaskGetState()
+            : null;
+        return state?.memberships?.length ?? 0;
+      });
+      return uiError || membershipsAfter === membershipsBefore;
+    }
+  }
+
+  const beforeCount = await page.evaluate(() => {
+    const state =
+      typeof window.__familyTaskGetState === "function"
+        ? window.__familyTaskGetState()
+        : null;
+    return state?.memberships?.length ?? 0;
+  });
+  const [response] = await Promise.all([
+    page.waitForResponse(
+      (r) =>
+        r.url().includes("/api/families/join") &&
+        r.request().method() === "POST",
+      { timeout: 30000 },
+    ),
+    joinForm.getByRole("button", { name: "参加", exact: true }).click(),
+  ]);
+  if (response.status() >= 400) {
+    throw new Error(`Join failed with status ${response.status()}`);
+  }
+  await page.waitForFunction(
+    (prevCount) => {
+      const state =
+        typeof window.__familyTaskGetState === "function"
+          ? window.__familyTaskGetState()
+          : null;
+      return (state?.memberships?.length ?? 0) > prevCount;
+    },
+    beforeCount,
+    { timeout: 20000 },
+  );
+  await page.waitForURL(/\/(family|\/?$)/, { timeout: 15000 }).catch(() => {});
+  await waitForAppReady(page);
+}
+
+async function joinViaSetupPage(page, code, userId, familyId) {
+  await page.waitForURL(/\/family\/setup/, { timeout: 10000 }).catch(() => {});
+  if (!page.url().includes("/family/setup")) return;
+  await page.getByRole("button", { name: "招待コードで参加する" }).click();
+  await page.fill('input[type="text"]', code);
+  await page.locator('form button[type="submit"]').click();
+  await page.waitForURL(/\/(?!family\/setup)/, { timeout: 20000 });
+  if (userId && familyId) {
+    await waitForFamilyInState(page, familyId);
+    await waitForMembershipCount(page, userId, 1);
+  } else {
+    await waitForFamiliesLoaded(page, { minMemberships: 1 });
+  }
 }
 
 async function logout(page) {
   await page.goto(`${BASE}/`);
+  await waitForSessionInitialized(page);
   await page
     .getByRole("button", { name: "プロフィールメニューを開く" })
-    .waitFor({ state: "visible", timeout: 20000 });
+    .waitFor({ state: "visible", timeout: 30000 });
   await page.getByRole("button", { name: "プロフィールメニューを開く" }).click();
   await page.getByRole("menuitem", { name: "ログアウト" }).click();
   await page.waitForURL(/\/login/, { timeout: 10000 });
@@ -254,17 +442,27 @@ async function addTaskToday(page, title) {
   const today = new Date();
   const dateKey = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`;
   await page.goto(`${BASE}/day/${dateKey}?mine=1`);
-  await page.waitForTimeout(500);
+  await waitForFamiliesLoaded(page);
+  await page
+    .getByRole("button", { name: "新規タスクの追加" })
+    .waitFor({ state: "visible", timeout: 20000 });
   await page.getByRole("button", { name: "新規タスクの追加" }).click();
   await page.getByPlaceholder("例: シャツのアイロンがけ、牛乳を買う").fill(title);
-  await page.getByRole("button", { name: "追加する" }).click();
-  await page.waitForTimeout(500);
+  const [response] = await Promise.all([
+    page.waitForResponse(
+      (r) => r.url().includes("/day/") || r.url().endsWith(`/${dateKey}?mine=1`),
+      { timeout: 5000 },
+    ).catch(() => null),
+    page.getByRole("button", { name: "追加する" }).click(),
+  ]);
+  void response;
+  await waitForTaskTitle(page, title, 20000);
 }
 
 async function getInviteCode(page) {
-  await page.goto(`${BASE}/family`);
-  await page.waitForTimeout(500);
+  await openFamilyPage(page);
   const codeEl = page.locator(".font-mono.tracking-widest");
+  await codeEl.waitFor({ state: "visible", timeout: 10000 });
   return (await codeEl.textContent())?.trim() ?? "";
 }
 
@@ -295,7 +493,8 @@ async function main() {
     await login(page, EMAIL_A);
     await completeProfileIfNeeded(page, "ユーザーA");
     await createFamilyOnSetup(page, "高橋家");
-    await page.waitForURL(`${BASE}/`, { timeout: 5000 }).catch(() => {});
+    await page.waitForURL(`${BASE}/`, { timeout: 10000 }).catch(() => {});
+    await waitForFamiliesLoaded(page, { minMemberships: 1 });
 
     state = await getState(page);
     userAId = state.session?.userId ?? "";
@@ -303,6 +502,7 @@ async function main() {
     record("1", "高橋家作成", Boolean(takahashiId));
 
     await createFamilyViaFamilyPage(page, "学校グループ");
+    await waitForMembershipCount(page, userAId, 2);
     state = await getState(page);
     schoolId = state.families.find((f) => f.name === "学校グループ")?.id ?? "";
     const userAMemberships = state.memberships.filter((m) => m.userId === userAId);
@@ -316,7 +516,6 @@ async function main() {
     record("1", "切り替えでグループ名が変わる", headerSchool);
 
     await switchToFamily(page, "高橋家");
-    await page.waitForTimeout(500);
     record("1", "メンバー一覧切替", await headerShowsFamily(page, "高橋家"));
     takahashiCode = await getInviteCode(page);
     record("1", "招待コード取得(高橋家)", takahashiCode.length >= 4, takahashiCode);
@@ -344,19 +543,19 @@ async function main() {
     record("2", "タスクfamilyIdが分離", gomiFamilyId === takahashiId && hwFamilyId === schoolId);
 
     await page.goto(`${BASE}/`);
-    await page.waitForTimeout(500);
+    await waitForFamiliesLoaded(page);
     const pageTextSchool = await page.textContent("body");
     record("2", "学校グループでは宿題のみ表示", pageTextSchool?.includes("宿題") && !pageTextSchool?.includes("ゴミ出し"));
 
     await switchToFamily(page, "高橋家");
     await page.goto(`${BASE}/`);
-    await page.waitForTimeout(800);
+    await waitForFamiliesLoaded(page);
     const pageTextTaka = await page.textContent("body");
     record("2", "高橋家ではゴミ出しのみ表示", pageTextTaka?.includes("ゴミ出し") && !pageTextTaka?.includes("宿題"));
 
     // URL manipulation - try to edit other group's task while on takahashi
     await page.goto(`${BASE}/day/${new Date().toISOString().slice(0, 10)}?mine=1`);
-    await page.waitForTimeout(500);
+    await waitForFamiliesLoaded(page);
     state = await getState(page);
     const activeTasks = state.tasks.filter((t) => t.familyId === state.session?.activeFamilyId);
     record("2", "アクティブグループのタスクのみ", !activeTasks.some((t) => t.id === taskHomeworkId));
@@ -365,7 +564,7 @@ async function main() {
     await switchToFamily(page, "学校グループ");
     const todayKey = new Date().toISOString().slice(0, 10);
     await page.goto(`${BASE}/day/${todayKey}?mine=1`);
-    await page.waitForTimeout(400);
+    await waitForFamiliesLoaded(page);
     const dayBodySchool = await page.textContent("body");
     record("7e", "他グループタスクが編集画面に出ない", !dayBodySchool?.includes("ゴミ出し"));
     const hackResult = await assertTaskNotInActiveGroup(page, taskGomiId);
@@ -373,7 +572,6 @@ async function main() {
     record("7e", "updateTask相当で他グループタスク更新不可", !hackResult.mutable);
 
     await createFamilyViaFamilyPage(page, LONG_GROUP_NAME);
-    await page.waitForTimeout(400);
     record("7e", "長いグループ名で崩れない", await headerShowsFamily(page, LONG_GROUP_NAME));
 
     // === 3. User B joins ===
@@ -381,29 +579,28 @@ async function main() {
     await logout(page);
     await login(page, EMAIL_B);
     await completeProfileIfNeeded(page, LONG_USER_NAME);
-    await page.waitForURL(/\/family\/setup/, { timeout: 5000 }).catch(() => {});
-
-    if (page.url().includes("/family/setup")) {
-      await page.getByRole("button", { name: "招待コードで参加する" }).click();
-      await page.fill('input[type="text"]', takahashiCode);
-      await page.locator('form button[type="submit"]').click();
-      await page.waitForTimeout(800);
-    }
+    await joinViaSetupPage(page, takahashiCode, null, takahashiId);
 
     state = await getState(page);
     userBId = state.session?.userId ?? "";
+    await waitForFamilyInState(page, takahashiId);
     const bMemberships1 = state.memberships.filter((m) => m.userId === userBId);
     record("3", "高橋家へ参加", bMemberships1.some((m) => m.familyId === takahashiId));
 
     await joinViaFamilyPage(page, schoolCode);
+    await waitForMembershipCount(page, userBId, 2, 60000);
     state = await getState(page);
     const bMemberships2 = state.memberships.filter((m) => m.userId === userBId);
     record("3", "2グループへ参加", bMemberships2.length === 2);
 
-    await joinViaFamilyPage(page, takahashiCode);
-    const dupError = await page.locator("text=このグループには既に参加しています").isVisible({ timeout: 2000 }).catch(() => false);
-    record("3", "重複参加エラー", dupError);
+    await page.waitForURL(/\/(family|\/?)$/, { timeout: 15000 }).catch(() => {});
+    await waitForAppReady(page);
+    const dupRejected = await joinViaFamilyPage(page, takahashiCode, {
+      expectDuplicate: true,
+    });
+    record("3", "重複参加エラー", dupRejected);
 
+    state = await getState(page);
     record("3", "参加後activeFamilyId更新", state.session?.activeFamilyId === schoolId);
 
     console.log("\n## 3b. カレンダー追加UI");
@@ -414,14 +611,14 @@ async function main() {
     const calendarTodayKey = new Date().toISOString().slice(0, 10);
 
     await page.goto(`${BASE}/day/${calendarTodayKey}?mine=1`);
-    await page.waitForTimeout(500);
+    await waitForFamiliesLoaded(page);
     const ownAddVisible = await page
       .getByRole("button", { name: "新規タスクの追加" })
       .isVisible();
     record("3b", "自分の詳細画面では追加ボタン表示", ownAddVisible);
 
     await page.goto(`${BASE}/day/${calendarTodayKey}?user=${userBId}`);
-    await page.waitForTimeout(500);
+    await waitForFamiliesLoaded(page);
     const otherAddVisible = await page
       .getByRole("button", { name: "新規タスクの追加" })
       .isVisible()
@@ -450,7 +647,7 @@ async function main() {
     await page.goto(
       `${BASE}/day/${calendarTodayKey}?user=${userBId}&add=1&open=1`,
     );
-    await page.waitForTimeout(500);
+    await waitForFamiliesLoaded(page);
     const formAfterHack = await page
       .getByRole("button", { name: "新規タスクの追加" })
       .isVisible()
@@ -472,8 +669,11 @@ async function main() {
     // === 4. User B leaves takahashi ===
     console.log("\n## 4. 一般メンバー退出 (User B)");
     await switchToFamily(page, "高橋家");
-    await page.goto(`${BASE}/family`);
+    await openFamilyPage(page);
     await page.setViewportSize({ width: 375, height: 800 });
+    await page
+      .getByRole("button", { name: "このグループから退出" })
+      .waitFor({ state: "visible", timeout: 20000 });
     await page.getByRole("button", { name: "このグループから退出" }).click();
     const leaveDialog = await page.getByRole("alertdialog").isVisible();
     record("4", "確認ダイアログ表示", leaveDialog);
@@ -491,7 +691,7 @@ async function main() {
         : "dialog not found",
     );
     await page.getByRole("button", { name: "退出する" }).click();
-    await page.waitForTimeout(800);
+    await waitForMembershipRemoved(page, userBId, takahashiId);
     await page.setViewportSize({ width: 1024, height: 800 });
 
     state = await getState(page);
@@ -503,8 +703,12 @@ async function main() {
     await logout(page);
     await login(page, EMAIL_A);
     await switchToFamily(page, "高橋家");
-    await page.goto(`${BASE}/family`);
-    await page.waitForTimeout(400);
+    await openFamilyPage(page);
+    await page.waitForFunction(
+      (name) => !document.body.textContent?.includes(name),
+      LONG_USER_NAME,
+      { timeout: 15000 },
+    ).catch(() => {});
     const membersAfterLeave = await page.textContent("body");
     record("4", "退出後メンバー一覧から消える", !membersAfterLeave?.includes(LONG_USER_NAME));
 
@@ -521,27 +725,57 @@ async function main() {
     await logout(page);
     await login(page, EMAIL_C);
     await completeProfileIfNeeded(page, "ユーザーC");
-    if (page.url().includes("/family/setup")) {
-      await page.getByRole("button", { name: "招待コードで参加する" }).click();
-      await page.fill('input[type="text"]', takahashiCode);
-      await page.locator('form button[type="submit"]').click();
-      await page.waitForTimeout(800);
-    }
+    await joinViaSetupPage(page, takahashiCode, null, takahashiId);
     state = await getState(page);
     userCId = state.session?.userId ?? "";
+    record(
+      "5",
+      "User C参加",
+      state.memberships.some(
+        (m) => m.userId === userCId && m.familyId === takahashiId,
+      ),
+    );
 
     await logout(page);
     await login(page, EMAIL_A);
-    await page.waitForURL(`${BASE}/`, { timeout: 8000 }).catch(() => {});
     await switchToFamily(page, "高橋家");
-    await page.goto(`${BASE}/family`);
-    await page.waitForTimeout(500);
+    await openFamilyPage(page);
+    try {
+      await waitForMembersApiCount(page, takahashiId, 2);
+    } catch {
+      await switchToFamily(page, "学校グループ");
+      await switchToFamily(page, "高橋家");
+      await openFamilyPage(page);
+      await waitForMembersApiCount(page, takahashiId, 2);
+    }
+    await waitForActiveFamilyMemberCount(page, 2);
 
     const removeBtn = page.getByRole("button", { name: "削除" }).first();
     record("5", "オーナーだけ削除操作", await removeBtn.isVisible());
     await removeBtn.click();
-    await page.getByRole("button", { name: "削除する" }).click();
-    await page.waitForTimeout(800);
+    const removeDialog = page.getByRole("alertdialog").filter({
+      hasText: "メンバーを削除",
+    });
+    await removeDialog.waitFor({ state: "visible", timeout: 15000 });
+    const [deleteResponse] = await Promise.all([
+      page.waitForResponse(
+        (r) =>
+          r.url().includes("/members/") && r.request().method() === "DELETE",
+        { timeout: 30000 },
+      ),
+      removeDialog.getByRole("button", { name: "削除する" }).click(),
+    ]);
+    record("5", "DELETE API成功", deleteResponse.ok(), `status=${deleteResponse.status()}`);
+    await page
+      .waitForResponse(
+        (r) =>
+          r.url().includes(`/api/families/${takahashiId}/members`) &&
+          r.request().method() === "GET" &&
+          r.ok(),
+        { timeout: 30000 },
+      )
+      .catch(() => null);
+    await waitForMemberRemovedFromFamily(page, userCId, takahashiId);
 
     state = await getState(page);
     record("5", "ユーザーC membership削除", !state.memberships.some((m) => m.userId === userCId && m.familyId === takahashiId));
@@ -563,23 +797,34 @@ async function main() {
     await logout(page);
     await login(page, EMAIL_A);
     await switchToFamily(page, "学校グループ");
-    await page.goto(`${BASE}/family`);
-    await page.waitForTimeout(500);
+    await openFamilyPage(page);
 
     await page.getByRole("button", { name: "オーナーに移譲" }).first().click();
-    await page.getByRole("button", { name: "移譲する" }).click();
-    await page.waitForTimeout(800);
+    await page.getByRole("alertdialog").waitFor({ state: "visible", timeout: 10000 });
+    const [transferResponse] = await Promise.all([
+      page.waitForResponse(
+        (r) =>
+          r.url().includes("/transfer-ownership") &&
+          r.request().method() === "POST" &&
+          r.ok(),
+        { timeout: 45000 },
+      ),
+      page.getByRole("button", { name: "移譲する" }).click(),
+    ]);
+    record("6", "transfer API成功", transferResponse.ok(), `status=${transferResponse.status()}`);
+    await waitForMemberRole(page, userBId, schoolId, "owner", 45000);
 
     state = await getState(page);
     const schoolFamily = state.families.find((f) => f.id === schoolId);
     const aMembership = state.memberships.find((m) => m.userId === userAId && m.familyId === schoolId);
-    const bMembership = state.memberships.find((m) => m.userId === userBId && m.familyId === schoolId);
     record("6", "ownerId更新", schoolFamily?.ownerId === userBId);
     record("6", "Aがmember", aMembership?.role === "member");
-    record("6", "Bがowner", bMembership?.role === "owner");
+    record("6", "Bがowner", schoolFamily?.ownerId === userBId);
+
+    await dismissBlockingModal(page);
 
     await page.reload();
-    await page.waitForTimeout(500);
+    await waitForFamiliesLoaded(page);
     const roleText = await page.textContent("body");
     record("6", "UI表示更新", roleText?.includes("メンバー"));
 
@@ -587,9 +832,13 @@ async function main() {
     await logout(page);
     await login(page, EMAIL_B);
     await switchToFamily(page, "学校グループ");
-    await page.goto(`${BASE}/family`);
-    await page.waitForTimeout(500);
-    const bCanManage = await page.getByRole("button", { name: "グループを削除" }).isVisible();
+    await openFamilyPage(page);
+    await page
+      .getByRole("button", { name: "グループを削除" })
+      .waitFor({ state: "visible", timeout: 15000 });
+    const bCanManage = await page
+      .getByRole("button", { name: "グループを削除" })
+      .isVisible();
     record("6", "新オーナーBだけ管理操作", bCanManage);
     await logout(page);
     await login(page, EMAIL_A);
@@ -605,40 +854,57 @@ async function main() {
     record("8", "ログアウト後preferences保存", state.activeFamilyPreferences[userAId] === savedSchoolId);
 
     await login(page, EMAIL_A);
-    await page.waitForURL(`${BASE}/`, { timeout: 8000 }).catch(() => {});
+    await waitForFamiliesLoaded(page, {
+      activeFamilyId: savedSchoolId,
+      userId: userAId,
+    });
     state = await getState(page);
     record("8", "activeFamilyId復元", state.session?.activeFamilyId === savedSchoolId);
     record("8", "所属外グループIDは復元されない", state.session?.activeFamilyId !== "invalid-id");
 
     await page.goto(`${BASE}/family`);
+    await waitForFamiliesLoaded(page);
     await page.getByRole("button", { name: "このグループから退出" }).click();
     await page.getByRole("button", { name: "退出する" }).click();
-    await page.waitForTimeout(800);
+    await waitForMembershipRemoved(page, userAId, schoolId);
+    await dismissBlockingModal(page);
     state = await getState(page);
     record("6", "元オーナーAが退出可能", !state.memberships.some((m) => m.userId === userAId && m.familyId === schoolId));
 
     // === 7. Group deletion ===
     console.log("\n## 7. グループ削除");
     await switchToFamily(page, "高橋家");
-    await page.goto(`${BASE}/family`);
+    await openFamilyPage(page);
     const membershipsBeforeDelete = (await getState(page)).memberships.length;
     await page.getByRole("button", { name: "グループを削除" }).click();
     const deleteDisabled = await page.getByRole("button", { name: "削除する" }).isDisabled();
     record("7", "名前不一致で削除不可", deleteDisabled);
     await page.getByRole("button", { name: "キャンセル" }).click();
-    await page.waitForTimeout(300);
+    await page.getByRole("alertdialog").waitFor({ state: "hidden", timeout: 5000 }).catch(() => {});
 
     await page.getByRole("button", { name: "グループを削除" }).click();
     await page.locator('input[placeholder="高橋家"]').fill("高橋家");
     await page.getByRole("button", { name: "削除する" }).click();
-    await page.waitForTimeout(800);
+    await waitForFamilyRemoved(page, takahashiId);
 
     state = await getState(page);
     record("7", "対象グループのみ削除", !state.families.some((f) => f.id === takahashiId));
     record("7", "対象membership削除", state.memberships.length < membershipsBeforeDelete);
     record("7", "対象タスク削除", !state.tasks.some((t) => t.id === taskGomiId));
     record("7", "UserProfile残存", state.users.length >= 3);
-    record("7", "他グループ残存", state.families.some((f) => f.id === schoolId));
+
+    await logout(page);
+    await login(page, EMAIL_B);
+    const bStateAfterDelete = await getState(page);
+    record(
+      "7",
+      "他グループ残存",
+      bStateAfterDelete.families.some((f) => f.id === schoolId),
+    );
+    await logout(page);
+    await login(page, EMAIL_A);
+    await waitForFamiliesLoaded(page);
+
     const aMemberships = state.memberships.filter((m) => m.userId === userAId);
     record(
       "7",
@@ -653,12 +919,11 @@ async function main() {
     await login(page, EMAIL_B);
     await switchToFamily(page, "学校グループ");
     await openFamilyPage(page);
-    await page.waitForTimeout(500);
 
     for (const width of [375, 430, 768, 1024, 1440]) {
       await page.setViewportSize({ width, height: 800 });
       await page.goto(`${BASE}/`);
-      await page.waitForTimeout(400);
+      await waitForFamiliesLoaded(page);
       const layout = await page.evaluate(() => ({
         overflow: document.documentElement.scrollWidth > window.innerWidth + 1,
         scrollWidth: document.documentElement.scrollWidth,

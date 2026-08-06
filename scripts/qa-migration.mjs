@@ -28,7 +28,6 @@ const memberships = [
 
 console.log("\n## 9. 旧データ移行\n");
 
-// Legacy session without activeFamilyId
 const legacy1 = migrateState({
   users: [user],
   families: [family1, family2],
@@ -37,13 +36,14 @@ const legacy1 = migrateState({
   session: { userId },
   activeFamilyPreferences: {},
 });
+record("旧familiesは読み込まない", legacy1.families.length === 0);
+record("旧membershipsは読み込まない", legacy1.memberships.length === 0);
 record(
-  "membershipあり→先頭familyId設定",
-  legacy1.session?.activeFamilyId === "f1",
+  "membership未ロード時activeFamilyIdはnull",
+  legacy1.session?.activeFamilyId === null,
   legacy1.session?.activeFamilyId,
 );
 
-// No memberships
 const legacy2 = migrateState({
   users: [user],
   families: [],
@@ -53,22 +53,24 @@ const legacy2 = migrateState({
 });
 record("membershipなし→null", legacy2.session?.activeFamilyId === null);
 
-// Invalid activeFamilyId
 const legacy3 = migrateState({
   users: [user],
   families: [family1, family2],
   memberships,
   tasks: [],
   session: { userId, activeFamilyId: "invalid-id" },
-  activeFamilyPreferences: {},
+  activeFamilyPreferences: { [userId]: "f2" },
 });
 record(
-  "存在しないfamilyId→有効なIDへ",
-  legacy3.session?.activeFamilyId === "f1",
+  "無効sessionIdは使わずpreferenceを保持",
+  legacy3.session?.activeFamilyId === "f2",
   legacy3.session?.activeFamilyId,
 );
+record(
+  "activeFamilyPreferencesは保持",
+  legacy3.activeFamilyPreferences[userId] === "f2",
+);
 
-// Duplicate memberships (should not crash)
 const legacy4 = migrateState({
   users: [user],
   families: [family1],
@@ -79,11 +81,10 @@ const legacy4 = migrateState({
   tasks: [],
   session: { userId },
 });
-record("重複membershipでクラッシュしない", legacy4.session?.activeFamilyId === "f1");
+record("重複membership入力でもクラッシュしない", legacy4.memberships.length === 0);
 
-// Preference restore
 const resolved = resolveActiveFamilyId(userId, memberships, null, "f2");
-record("savedPreference優先", resolved === "f2");
+record("savedPreference優先（API取得後）", resolved === "f2");
 
 const legacyTasks = migrateState({
   users: [user],
@@ -114,6 +115,7 @@ record(
     t.recurrenceGroupId === null &&
     t.repeatWeekday === null,
 );
+record("旧タスクのfamilyIdは保持", t.familyId === "f1");
 
 const failed = results.filter((r) => !r.pass);
 console.log(`\nMigration: ${results.length - failed.length}/${results.length} passed\n`);

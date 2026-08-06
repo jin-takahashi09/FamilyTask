@@ -22,12 +22,13 @@ export function AuthGuard({
     currentUser,
     isAuthenticated,
     hasFamily,
+    familiesLoading,
     profileLoadError,
   } = useApp();
   const router = useRouter();
 
   useEffect(() => {
-    if (!isReady || profileLoadError) return;
+    if (!isReady || profileLoadError || familiesLoading) return;
 
     if (redirectIfAuthenticated && isAuthenticated) {
       if (!currentUser?.profileCompleted) {
@@ -70,6 +71,7 @@ export function AuthGuard({
     currentUser,
     hasFamily,
     profileLoadError,
+    familiesLoading,
     requireProfile,
     requireFamily,
     redirectIfAuthenticated,
@@ -80,6 +82,14 @@ export function AuthGuard({
     return (
       <div className="flex min-h-screen items-center justify-center text-sm font-bold text-amber-700">
         読み込み中...
+      </div>
+    );
+  }
+
+  if (familiesLoading && requireFamily) {
+    return (
+      <div className="flex min-h-screen items-center justify-center text-sm font-bold text-amber-700">
+        グループ情報を読み込み中...
       </div>
     );
   }
@@ -110,7 +120,8 @@ export function AuthGuard({
     requireFamily &&
     isAuthenticated &&
     currentUser?.profileCompleted &&
-    !hasFamily
+    !hasFamily &&
+    !familiesLoading
   ) {
     return null;
   }
