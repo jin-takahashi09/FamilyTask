@@ -17,11 +17,17 @@ export function AuthGuard({
   requireFamily = true,
   redirectIfAuthenticated = false,
 }: AuthGuardProps) {
-  const { isReady, currentUser, isAuthenticated, hasFamily } = useApp();
+  const {
+    isReady,
+    currentUser,
+    isAuthenticated,
+    hasFamily,
+    profileLoadError,
+  } = useApp();
   const router = useRouter();
 
   useEffect(() => {
-    if (!isReady) return;
+    if (!isReady || profileLoadError) return;
 
     if (redirectIfAuthenticated && isAuthenticated) {
       if (!currentUser?.profileCompleted) {
@@ -63,6 +69,7 @@ export function AuthGuard({
     isAuthenticated,
     currentUser,
     hasFamily,
+    profileLoadError,
     requireProfile,
     requireFamily,
     redirectIfAuthenticated,
@@ -73,6 +80,17 @@ export function AuthGuard({
     return (
       <div className="flex min-h-screen items-center justify-center text-sm font-bold text-amber-700">
         読み込み中...
+      </div>
+    );
+  }
+
+  if (profileLoadError) {
+    return (
+      <div className="mx-auto flex min-h-screen max-w-md flex-col justify-center px-4 py-8 text-center">
+        <p className="text-sm font-bold text-rose-500">{profileLoadError}</p>
+        <p className="mt-2 text-xs text-slate-500">
+          プロフィール未設定とは異なるエラーです。接続を確認して再度お試しください。
+        </p>
       </div>
     );
   }

@@ -183,11 +183,14 @@ async function login(page, email) {
 }
 
 async function completeProfileIfNeeded(page, name) {
-  await page.waitForTimeout(500);
+  await page.waitForTimeout(800);
   if (page.url().includes("/profile/setup")) {
     await page.fill('input[type="text"]', name);
     await page.getByRole("button", { name: "設定を完了する" }).click();
-    await page.waitForTimeout(500);
+    await page
+      .waitForURL(/\/(family\/setup|\/)$/, { timeout: 20000 })
+      .catch(() => {});
+    await page.waitForTimeout(800);
   }
 }
 
@@ -239,10 +242,12 @@ async function joinViaFamilyPage(page, code) {
 
 async function logout(page) {
   await page.goto(`${BASE}/`);
-  await page.waitForTimeout(500);
+  await page
+    .getByRole("button", { name: "プロフィールメニューを開く" })
+    .waitFor({ state: "visible", timeout: 20000 });
   await page.getByRole("button", { name: "プロフィールメニューを開く" }).click();
   await page.getByRole("menuitem", { name: "ログアウト" }).click();
-  await page.waitForURL(/\/login/, { timeout: 5000 });
+  await page.waitForURL(/\/login/, { timeout: 10000 });
 }
 
 async function addTaskToday(page, title) {

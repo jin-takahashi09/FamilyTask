@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { ArrowLeft } from "lucide-react";
@@ -10,6 +11,7 @@ import { useApp } from "@/context/AppProvider";
 function ProfileEditContent() {
   const { currentUser, updateProfile } = useApp();
   const router = useRouter();
+  const [error, setError] = useState("");
 
   if (!currentUser) return null;
 
@@ -33,6 +35,9 @@ function ProfileEditContent() {
       </div>
 
       <div className="rounded-3xl border border-amber-100 bg-white p-6 shadow-sm sm:p-8">
+        {error && (
+          <p className="mb-4 text-sm font-bold text-rose-500">{error}</p>
+        )}
         <ProfileForm
           initial={{
             displayName: currentUser.displayName,
@@ -40,8 +45,12 @@ function ProfileEditContent() {
           }}
           submitLabel="変更を保存"
           onCancel={() => router.push("/")}
-          onSubmit={(data) => {
-            updateProfile(currentUser.id, data);
+          onSubmit={async (data) => {
+            const result = await updateProfile(currentUser.id, data);
+            if (!result.success) {
+              setError(result.error ?? "プロフィールを保存できませんでした");
+              return;
+            }
             router.push("/");
           }}
         />

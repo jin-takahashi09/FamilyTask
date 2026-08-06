@@ -44,6 +44,19 @@ import { DEFAULT_TASK_SORT_ORDER, normalizeTaskSortOrder } from "@/lib/task-sort
 import { fetchAuthMe, type AuthMeResponse } from "@/lib/api/auth";
 import { ApiError } from "@/lib/api/client";
 import {
+  fetchMyProfile,
+  ProfileFetchError,
+  ProfileNotFoundError,
+  ProfileSaveError,
+  saveMyProfile,
+  type FirestoreProfile,
+} from "@/lib/api/profile";
+import {
+  applySavedProfile,
+  mergeFirestoreProfile,
+  profileFormToApiPayload,
+} from "@/lib/profile-utils";
+import {
   getFirebaseAuthErrorMessage,
   validateRegistrationInput,
 } from "@/lib/firebase/auth-errors";
@@ -64,6 +77,10 @@ type FamilyActionResult =
   | { success: true; redirectTo?: string }
   | { success: false; error: string };
 
+type ProfileActionResult =
+  | { success: true }
+  | { success: false; error: string };
+
 type AppContextValue = {
   users: UserProfile[];
   families: FamilyGroup[];
@@ -79,6 +96,7 @@ type AppContextValue = {
   isAuthenticated: boolean;
   hasFamily: boolean;
   isReady: boolean;
+  profileLoadError: string | null;
   login: (email: string, password: string) => Promise<LoginResult>;
   register: (
     email: string,
@@ -86,8 +104,14 @@ type AppContextValue = {
     passwordConfirm: string,
   ) => Promise<LoginResult>;
   logout: () => Promise<void>;
-  completeProfile: (userId: string, data: ProfileFormData) => void;
-  updateProfile: (userId: string, data: ProfileFormData) => void;
+  completeProfile: (
+    userId: string,
+    data: ProfileFormData,
+  ) => Promise<ProfileActionResult>;
+  updateProfile: (
+    userId: string,
+    data: ProfileFormData,
+  ) => Promise<ProfileActionResult>;
   switchFamily: (familyId: string) => FamilyActionResult;
   createFamily: (name: string) => FamilyActionResult;
   joinFamilyByInviteCode: (inviteCode: string) => FamilyActionResult;
@@ -120,19 +144,6 @@ type AppContextValue = {
 };
 
 const AppContext = createContext<AppContextValue | null>(null);
-
-function applyProfileData(
-  user: UserProfile,
-  data: ProfileFormData,
-  markCompleted: boolean,
-): UserProfile {
-  return {
-    ...user,
-    displayName: data.displayName,
-    profileImage: data.profileImage,
-    profileCompleted: markCompleted ? true : user.profileCompleted,
-  };
-}
 
 function updateSessionFamily(
   prev: AppState,
@@ -175,25 +186,15 @@ function useIsClientReady() {
 function buildSessionFromVerified(
   prev: AppState,
   verified: AuthMeResponse,
+  firestoreProfile: FirestoreProfile | null,
 ): { state: AppState; result: LoginResult } {
+  const user = mergeFirestoreProfile(verified, firestoreProfile, prev.users);
   const nextUsers = [...prev.users];
-  const existingIndex = nextUsers.findIndex((user) => user.id === verified.uid);
-  let user: UserProfile;
+  const existingIndex = nextUsers.findIndex((entry) => entry.id === user.id);
 
   if (existingIndex === -1) {
-    user = {
-      id: verified.uid,
-      email: verified.email ?? "",
-      displayName: "",
-      profileImage: null,
-      profileCompleted: false,
-    };
     nextUsers.push(user);
   } else {
-    user = {
-      ...nextUsers[existingIndex],
-      email: verified.email ?? nextUsers[existingIndex].email,
-    };
     nextUsers[existingIndex] = user;
   }
 
@@ -232,6 +233,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   );
   const clientReady = useIsClientReady();
   const [authInitialized, setAuthInitialized] = useState(false);
+  const [profileLoadError, setProfileLoadError] = useState<string | null>(null);
   const sessionUserIdRef = useRef<string | null>(null);
   const syncSessionPromiseRef = useRef<Promise<LoginResult> | null>(null);
   const firebaseConfigured = isFirebaseConfigured();
@@ -278,16 +280,37 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
         try {
           const verified = await fetchAuthMe();
+          let firestoreProfile: FirestoreProfile | null = null;
+          let nextProfileLoadError: string | null = null;
+
+          try {
+            firestoreProfile = await fetchMyProfile();
+          } catch (error) {
+            if (error instanceof ProfileNotFoundError) {
+              firestoreProfile = null;
+            } else if (error instanceof ProfileFetchError) {
+              nextProfileLoadError = error.message;
+            } else {
+              nextProfileLoadError = "プロフィールを取得できませんでした";
+            }
+          }
+
           let result: LoginResult = { success: false };
           updateState((prev) => {
-            const built = buildSessionFromVerified(prev, verified);
+            const built = buildSessionFromVerified(
+              prev,
+              verified,
+              firestoreProfile,
+            );
             result = built.result;
             sessionUserIdRef.current = verified.uid;
             return built.state;
           });
+          setProfileLoadError(nextProfileLoadError);
           return result;
         } catch (error) {
           sessionUserIdRef.current = null;
+          setProfileLoadError(null);
           await signOut(getFirebaseAuth());
           updateState((prev) => ({ ...prev, session: null }));
           if (error instanceof ApiError) {
@@ -458,6 +481,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   );
 
   const logout = useCallback(async () => {
+    setProfileLoadError(null);
     updateState((prev) => {
       const userId = prev.session?.userId;
       const activeFamilyId = prev.session?.activeFamilyId;
@@ -473,23 +497,59 @@ export function AppProvider({ children }: { children: ReactNode }) {
     }
   }, [updateState]);
 
-  const completeProfile = useCallback((userId: string, data: ProfileFormData) => {
-    updateState((prev) => ({
-      ...prev,
-      users: prev.users.map((u) =>
-        u.id === userId ? applyProfileData(u, data, true) : u,
-      ),
-    }));
-  }, [updateState]);
+  const completeProfile = useCallback(
+    async (
+      userId: string,
+      data: ProfileFormData,
+    ): Promise<ProfileActionResult> => {
+      try {
+        const saved = await saveMyProfile(profileFormToApiPayload(data));
+        updateState((prev) => ({
+          ...prev,
+          users: prev.users.map((user) =>
+            user.id === userId
+              ? applySavedProfile(user, data, saved, true)
+              : user,
+          ),
+        }));
+        setProfileLoadError(null);
+        return { success: true };
+      } catch (error) {
+        if (error instanceof ProfileSaveError) {
+          return { success: false, error: error.message };
+        }
+        return { success: false, error: "プロフィールを保存できませんでした" };
+      }
+    },
+    [updateState],
+  );
 
-  const updateProfile = useCallback((userId: string, data: ProfileFormData) => {
-    updateState((prev) => ({
-      ...prev,
-      users: prev.users.map((u) =>
-        u.id === userId ? applyProfileData(u, data, u.profileCompleted) : u,
-      ),
-    }));
-  }, [updateState]);
+  const updateProfile = useCallback(
+    async (
+      userId: string,
+      data: ProfileFormData,
+    ): Promise<ProfileActionResult> => {
+      try {
+        const saved = await saveMyProfile(profileFormToApiPayload(data));
+        updateState((prev) => ({
+          ...prev,
+          users: prev.users.map((user) =>
+            user.id === userId
+              ? applySavedProfile(user, data, saved, user.profileCompleted)
+              : user,
+          ),
+        }));
+        setProfileLoadError(null);
+        return { success: true };
+      } catch (error) {
+        if (error instanceof ProfileSaveError) {
+          return { success: false, error: error.message };
+        }
+        return { success: false, error: "プロフィールを保存できませんでした" };
+      }
+    },
+    [updateState],
+  );
 
   const switchFamily = useCallback((familyId: string): FamilyActionResult => {
     let result: FamilyActionResult = { success: false, error: "不明なエラー" };
@@ -1110,6 +1170,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       isAuthenticated: Boolean(state.session && currentUser),
       hasFamily,
       isReady,
+      profileLoadError,
       login,
       register,
       logout,
@@ -1147,6 +1208,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       familyMembers,
       hasFamily,
       isReady,
+      profileLoadError,
       login,
       register,
       logout,

@@ -10,7 +10,8 @@
     "qa:multi-group": "firebase emulators:exec --only auth --project demo-familytask \"node scripts/qa-multi-group-harness.mjs\"",
     "qa:migration": "npx tsx scripts/qa-migration.mjs",
     "qa:recurring-tasks": "npx tsx scripts/qa-recurring-tasks.mjs",
-    "qa:firebase-auth": "npx tsx scripts/qa-firebase-auth.mjs"
+    "qa:firebase-auth": "npx tsx scripts/qa-firebase-auth.mjs",
+    "qa:profile": "npx tsx scripts/qa-profile.mjs"
   },
   "dependencies": {
     "date-fns": "^4.4.0",

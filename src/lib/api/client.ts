@@ -52,7 +52,7 @@ export async function apiFetch<T>(
   }
 
   const payload = (await response.json().catch(() => null)) as
-    | { message?: string }
+    | { message?: string; errors?: Record<string, string[]> }
     | null;
 
   if (response.status === 401) {
@@ -60,10 +60,14 @@ export async function apiFetch<T>(
   }
 
   if (!response.ok) {
-    throw new ApiError(
-      response.status,
-      payload?.message ?? "サーバーとの通信に失敗しました",
-    );
+    let message = payload?.message ?? "サーバーとの通信に失敗しました";
+    if (response.status === 422 && payload?.errors) {
+      const firstError = Object.values(payload.errors).flat()[0];
+      if (firstError) {
+        message = firstError;
+      }
+    }
+    throw new ApiError(response.status, message);
   }
 
   return payload as T;

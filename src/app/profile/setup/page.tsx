@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { AuthGuard } from "@/components/AuthGuard";
 import { ProfileForm } from "@/components/ProfileForm";
@@ -9,11 +9,13 @@ import { useApp } from "@/context/AppProvider";
 function ProfileSetupContent() {
   const { currentUser, completeProfile, hasFamily } = useApp();
   const router = useRouter();
+  const [error, setError] = useState("");
 
   useEffect(() => {
-    if (currentUser?.profileCompleted && !hasFamily) {
+    if (!currentUser?.profileCompleted) return;
+    if (!hasFamily) {
       router.replace("/family/setup");
-    } else if (currentUser?.profileCompleted && hasFamily) {
+    } else {
       router.replace("/");
     }
   }, [currentUser, hasFamily, router]);
@@ -34,14 +36,21 @@ function ProfileSetupContent() {
       </div>
 
       <div className="rounded-3xl border border-amber-100 bg-white p-6 shadow-sm sm:p-8">
+        {error && (
+          <p className="mb-4 text-sm font-bold text-rose-500">{error}</p>
+        )}
         <ProfileForm
           initial={{
             displayName: currentUser.displayName,
             profileImage: currentUser.profileImage,
           }}
           submitLabel="設定を完了する"
-          onSubmit={(data) => {
-            completeProfile(currentUser.id, data);
+          onSubmit={async (data) => {
+            const result = await completeProfile(currentUser.id, data);
+            if (!result.success) {
+              setError(result.error ?? "プロフィールを保存できませんでした");
+              return;
+            }
             router.push("/family/setup");
           }}
         />

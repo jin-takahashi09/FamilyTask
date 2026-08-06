@@ -2,6 +2,7 @@
 
 use App\Http\Controllers\AuthMeController;
 use App\Http\Controllers\FirestoreHealthController;
+use App\Http\Controllers\ProfileController;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
 
@@ -15,7 +16,11 @@ Route::get('/health', function () {
 
 Route::get('/firestore/health', FirestoreHealthController::class);
 
-Route::middleware('firebase.auth')->get('/auth/me', AuthMeController::class);
+Route::middleware('firebase.auth')->group(function () {
+    Route::get('/auth/me', AuthMeController::class);
+    Route::get('/profile', [ProfileController::class, 'show']);
+    Route::put('/profile', [ProfileController::class, 'upsert']);
+});
 
 Route::get('/user', function (Request $request) {
     return $request->user();

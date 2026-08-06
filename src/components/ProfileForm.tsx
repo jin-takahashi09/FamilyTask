@@ -13,7 +13,7 @@ export type ProfileFormData = {
 type ProfileFormProps = {
   initial: Pick<UserProfile, "displayName" | "profileImage">;
   submitLabel: string;
-  onSubmit: (data: ProfileFormData) => void;
+  onSubmit: (data: ProfileFormData) => void | Promise<void>;
   onCancel?: () => void;
 };
 
@@ -29,6 +29,7 @@ export function ProfileForm({
     initial.profileImage,
   );
   const [error, setError] = useState("");
+  const [submitting, setSubmitting] = useState(false);
 
   const previewUser = {
     displayName,
@@ -52,17 +53,24 @@ export function ProfileForm({
     reader.readAsDataURL(file);
   };
 
-  const handleSubmit = (e: FormEvent) => {
+  const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
     if (!displayName.trim()) {
       setError("表示名を入力してください");
       return;
     }
     setError("");
-    onSubmit({
-      displayName: displayName.trim(),
-      profileImage,
-    });
+    setSubmitting(true);
+    try {
+      await onSubmit({
+        displayName: displayName.trim(),
+        profileImage,
+      });
+    } catch {
+      setError("プロフィールを保存できませんでした");
+    } finally {
+      setSubmitting(false);
+    }
   };
 
   return (
@@ -125,9 +133,10 @@ export function ProfileForm({
         )}
         <button
           type="submit"
-          className="rounded-xl bg-gradient-to-r from-amber-400 to-orange-400 px-6 py-3 text-sm font-bold text-white shadow-md shadow-amber-200 hover:from-amber-500 hover:to-orange-500"
+          disabled={submitting}
+          className="rounded-xl bg-gradient-to-r from-amber-400 to-orange-400 px-6 py-3 text-sm font-bold text-white shadow-md shadow-amber-200 hover:from-amber-500 hover:to-orange-500 disabled:cursor-not-allowed disabled:opacity-60"
         >
-          {submitLabel}
+          {submitting ? "保存中..." : submitLabel}
         </button>
       </div>
     </form>
