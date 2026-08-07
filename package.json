@@ -13,13 +13,16 @@
     "qa:firebase-auth": "npx tsx scripts/qa-firebase-auth.mjs",
     "qa:profile": "npx tsx scripts/qa-profile.mjs",
     "qa:families": "firebase emulators:exec --only auth --project demo-familytask \"node scripts/qa-families-harness.mjs\" && npx tsx scripts/qa-families.mjs",
-    "qa:tasks": "node scripts/qa-preflight.mjs && firebase emulators:exec --only auth --project demo-familytask \"node scripts/qa-tasks-harness.mjs\""
+    "qa:tasks": "node scripts/qa-preflight.mjs && firebase emulators:exec --only auth --project demo-familytask \"node scripts/qa-tasks-harness.mjs\"",
+    "qa:realtime": "node scripts/qa-preflight.mjs && npx tsx scripts/qa-realtime-sync-unit.ts && firebase emulators:exec --only auth --project demo-familytask \"node scripts/qa-realtime-harness.mjs\""
   },
   "dependencies": {
     "date-fns": "^4.4.0",
     "firebase": "^12.17.1",
+    "laravel-echo": "^2.4.0",
     "lucide-react": "^1.28.0",
     "next": "16.3.0",
+    "pusher-js": "^8.6.0",
     "react": "19.2.8",
     "react-dom": "19.2.8"
   },

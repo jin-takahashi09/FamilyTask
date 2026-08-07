@@ -4,6 +4,7 @@ namespace App\Services;
 
 use App\Data\UserProfileData;
 use App\Exceptions\ProfileServiceException;
+use App\Sync\FamilySyncEventType;
 use Google\Cloud\Core\Timestamp;
 use Google\Cloud\Firestore\DocumentSnapshot;
 use Throwable;
@@ -14,6 +15,7 @@ class UserProfileService
 
     public function __construct(
         private readonly FirestoreService $firestore,
+        private readonly FamilySyncBroadcaster $sync,
     ) {}
 
     public function findByUid(string $uid): ?UserProfileData
@@ -56,6 +58,12 @@ class UserProfileService
             ]);
 
             $profile = $this->mapSnapshot($uid, $reference->snapshot());
+
+            $this->sync->dispatchForUserMemberships(
+                $uid,
+                FamilySyncEventType::ProfileUpdated,
+                $now->get(),
+            );
 
             return [
                 'profile' => $profile,

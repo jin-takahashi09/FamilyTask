@@ -26,10 +26,12 @@ return [
         'http://127.0.0.1:3098',
         'http://localhost:3099',
         'http://127.0.0.1:3099',
+        'http://localhost:3097',
+        'http://127.0.0.1:3097',
     ],
 
     'allowed_origins_patterns' => [
-        '#^http://(localhost|127\.0\.0\.1):(3000|3098|3099)$#',
+        '#^http://(localhost|127\.0\.0\.1):(3000|3097|3098|3099)$#',
     ],
 
     'allowed_headers' => ['*'],

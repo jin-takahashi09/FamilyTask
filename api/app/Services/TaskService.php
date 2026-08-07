@@ -4,6 +4,7 @@ namespace App\Services;
 
 use App\Data\TaskData;
 use App\Exceptions\TaskServiceException;
+use App\Sync\FamilySyncEventType;
 use Google\Cloud\Core\Timestamp;
 use Google\Cloud\Firestore\DocumentSnapshot;
 use Google\Cloud\Firestore\FirestoreClient;
@@ -21,6 +22,7 @@ class TaskService
         private readonly FirestoreService $firestore,
         private readonly MembershipService $memberships,
         private readonly TaskRecurrenceService $recurrence,
+        private readonly FamilySyncBroadcaster $sync,
     ) {}
 
     /**
@@ -185,6 +187,8 @@ class TaskService
         try {
             $this->commitTaskCreates($documents);
 
+            $this->sync->dispatch($familyId, FamilySyncEventType::TaskCreated, $now->get());
+
             return array_map(
                 fn (array $doc) => TaskData::fromFirestore($doc['id'], $doc),
                 $documents,
@@ -274,6 +278,12 @@ class TaskService
             throw new TaskServiceException('タスクを更新できませんでした');
         }
 
+        $this->sync->dispatch(
+            $familyId,
+            $this->resolveTaskUpdateEventType($input),
+            $now->get(),
+        );
+
         return $updated;
     }
 
@@ -295,6 +305,8 @@ class TaskService
             if ($ref->snapshot()->exists()) {
                 $ref->delete();
             }
+
+            $this->sync->dispatch($familyId, FamilySyncEventType::TaskDeleted);
         } catch (TaskServiceException $e) {
             throw $e;
         } catch (Throwable $e) {
@@ -342,6 +354,8 @@ class TaskService
 
         try {
             $this->commitTaskDeletes($targetIds);
+
+            $this->sync->dispatch($familyId, FamilySyncEventType::TaskDeleted);
         } catch (TaskServiceException $e) {
             throw $e;
         } catch (Throwable $e) {
@@ -506,6 +520,19 @@ class TaskService
         } catch (Throwable) {
             throw new TaskServiceException('タスク情報を取得できませんでした');
         }
+    }
+
+    private function resolveTaskUpdateEventType(array $input): string
+    {
+        if (array_key_exists('completed', $input)) {
+            $otherKeys = array_diff(array_keys($input), ['completed']);
+
+            if ($otherKeys === []) {
+                return FamilySyncEventType::TaskCompleted;
+            }
+        }
+
+        return FamilySyncEventType::TaskUpdated;
     }
 
     private function assertMemberOfFamily(string $userId, string $familyId): void

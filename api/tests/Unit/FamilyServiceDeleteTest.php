@@ -5,6 +5,7 @@ namespace Tests\Unit;
 use App\Data\MembershipData;
 use App\Exceptions\FamilyServiceException;
 use App\Services\FamilyService;
+use App\Services\FamilySyncBroadcaster;
 use App\Services\FirestoreService;
 use App\Services\InviteCodeGenerator;
 use App\Services\MembershipService;
@@ -157,6 +158,7 @@ class FamilyServiceDeleteTest extends TestCase
             $memberships,
             Mockery::mock(UserProfileService::class),
             Mockery::mock(InviteCodeGenerator::class),
+            $this->noopSyncBroadcaster(),
         );
 
         $this->expectException(FamilyServiceException::class);
@@ -243,7 +245,16 @@ class FamilyServiceDeleteTest extends TestCase
             $membershipService,
             $profiles ?? Mockery::mock(UserProfileService::class),
             Mockery::mock(InviteCodeGenerator::class),
+            $this->noopSyncBroadcaster(),
         );
+    }
+
+    private function noopSyncBroadcaster(): FamilySyncBroadcaster
+    {
+        $mock = Mockery::mock(FamilySyncBroadcaster::class);
+        $mock->shouldIgnoreMissing();
+
+        return $mock;
     }
 
     /**

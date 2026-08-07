@@ -47,6 +47,9 @@ class VerifyFirebaseToken
         $request->attributes->set('firebase_email', $verifiedUser->email);
         $request->attributes->set('firebase_email_verified', $verifiedUser->emailVerified);
 
+        $authUser = (object) ['id' => $verifiedUser->uid];
+        $request->setUserResolver(fn () => $authUser);
+
         return $next($request);
     }
 }

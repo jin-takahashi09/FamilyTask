@@ -107,6 +107,7 @@ async function main() {
         ...process.env,
         FIREBASE_AUTH_EMULATOR_HOST: emulatorHost,
         FIREBASE_PROJECT_ID: "demo-familytask",
+        BROADCAST_CONNECTION: "log",
       },
     },
   );

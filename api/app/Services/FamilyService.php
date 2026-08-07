@@ -6,6 +6,7 @@ use App\Data\FamilyData;
 use App\Data\FamilyMemberData;
 use App\Data\MembershipData;
 use App\Exceptions\FamilyServiceException;
+use App\Sync\FamilySyncEventType;
 use Google\Cloud\Core\Timestamp;
 use Google\Cloud\Firestore\DocumentReference;
 use Google\Cloud\Firestore\DocumentSnapshot;
@@ -27,6 +28,7 @@ class FamilyService
         private readonly MembershipService $memberships,
         private readonly UserProfileService $profiles,
         private readonly InviteCodeGenerator $inviteCodes,
+        private readonly FamilySyncBroadcaster $sync,
     ) {}
 
     /**
@@ -115,6 +117,8 @@ class FamilyService
                 throw new FamilyServiceException('グループを作成できませんでした');
             }
 
+            $this->sync->dispatch($familyId, FamilySyncEventType::FamilyCreated, $now->get());
+
             return new FamilyData(
                 id: $family->id,
                 name: $family->name,
@@ -201,6 +205,8 @@ class FamilyService
                 'joinedAt' => $now,
             ]);
 
+            $this->sync->dispatch($family->id, FamilySyncEventType::FamilyJoined, $now->get());
+
             return new FamilyData(
                 id: $family->id,
                 name: $family->name,
@@ -262,6 +268,8 @@ class FamilyService
 
         try {
             $this->memberships->membershipReference($familyId, $userId)->delete();
+
+            $this->sync->dispatch($familyId, FamilySyncEventType::FamilyLeft);
         } catch (FamilyServiceException $e) {
             throw $e;
         } catch (Throwable) {
@@ -285,6 +293,8 @@ class FamilyService
 
         try {
             $this->memberships->membershipReference($familyId, $targetUserId)->delete();
+
+            $this->sync->dispatch($familyId, FamilySyncEventType::FamilyMemberRemoved);
         } catch (FamilyServiceException $e) {
             throw $e;
         } catch (Throwable) {
@@ -345,6 +355,8 @@ class FamilyService
                 ]);
             });
 
+            $this->sync->dispatch($familyId, FamilySyncEventType::FamilyOwnershipTransferred, $now->get());
+
             return $this->getForMember($ownerUserId, $familyId);
         } catch (FamilyServiceException $e) {
             throw $e;
@@ -371,6 +383,8 @@ class FamilyService
         try {
             $this->deleteMembershipDocuments($familyId, $memberships);
             $this->deleteFamilyDocument($familyId);
+
+            $this->sync->dispatch($familyId, FamilySyncEventType::FamilyDeleted);
         } catch (FamilyServiceException $e) {
             throw $e;
         } catch (Throwable $e) {

@@ -1,4 +1,5 @@
 import { getFirebaseAuth } from "@/lib/firebase/client";
+import { getEchoSocketId } from "@/lib/realtime/echo";
 
 const DEFAULT_API_BASE_URL = "http://127.0.0.1:8000";
 
@@ -39,6 +40,11 @@ export async function apiFetch<T>(
     }
     const token = await currentUser.getIdToken();
     headers.set("Authorization", `Bearer ${token}`);
+
+    const socketId = getEchoSocketId();
+    if (socketId) {
+      headers.set("X-Socket-Id", socketId);
+    }
   }
 
   let response: Response;

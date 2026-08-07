@@ -87,6 +87,18 @@ import {
   toggleFamilyTaskCompleted,
   updateFamilyTask,
 } from "@/lib/api/tasks";
+import {
+  buildRefetchDedupKey,
+  getRefetchPlan,
+  shouldSkipDuplicateRefetch,
+} from "@/lib/realtime/familySyncHandler";
+import {
+  disconnectEcho,
+  getRealtimeConnectionState,
+  isReverbConfigured,
+  subscribeFamilySyncChannel,
+} from "@/lib/realtime/echo";
+import type { FamilySyncPayload } from "@/lib/realtime/types";
 
 type LoginResult =
   | { success: true; profileCompleted: boolean; hasFamily: boolean }
@@ -310,6 +322,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     [],
   );
   const sessionUserIdRef = useRef<string | null>(null);
+  const activeFamilyIdRef = useRef<string | null>(null);
   const familiesSyncedUidRef = useRef<string | null>(null);
   const syncSessionPromiseRef = useRef<Promise<LoginResult> | null>(null);
   const membersFetchRef = useRef<{
@@ -350,6 +363,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
         familiesLoading: boolean;
         isReady: boolean;
         authInitialized: boolean;
+        tasksLoading: boolean;
+        activeFamilyMemberCount: number;
+        realtimeConnectionState: string;
       };
     };
     win.__familyTaskGetQA = () => ({
@@ -358,6 +374,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       isReady,
       authInitialized,
       activeFamilyMemberCount: activeFamilyMembers.length,
+      realtimeConnectionState: getRealtimeConnectionState(),
     });
   }, [clientReady, familiesLoading, tasksLoading, isReady, authInitialized, activeFamilyMembers.length]);
 
@@ -444,6 +461,105 @@ export function AppProvider({ children }: { children: ReactNode }) {
       }
     },
     [updateState],
+  );
+
+  const refreshFamilies = useCallback(async () => {
+    const userId = sessionUserIdRef.current;
+    if (!userId) {
+      return;
+    }
+
+    setFamiliesLoading(true);
+    try {
+      const familiesData = await fetchMyFamilies();
+      updateState((prev) =>
+        normalizeActiveFamily(
+          applyFamiliesData(
+            prev,
+            userId,
+            familiesData.families,
+            familiesData.memberships,
+          ),
+        ),
+      );
+    } catch {
+      // families refresh failure is non-fatal
+    } finally {
+      setFamiliesLoading(false);
+    }
+  }, [updateState]);
+
+  const refreshCurrentProfile = useCallback(async () => {
+    const userId = sessionUserIdRef.current;
+    if (!userId) {
+      return;
+    }
+
+    try {
+      const profile = await fetchMyProfile();
+      updateState((prev) => {
+        const existing = prev.users.find((user) => user.id === userId);
+        if (!existing) {
+          return prev;
+        }
+
+        return {
+          ...prev,
+          users: prev.users.map((user) =>
+            user.id === userId
+              ? {
+                  ...existing,
+                  displayName: profile.displayName,
+                  avatarType: profile.avatarType,
+                  avatarValue: profile.avatarValue,
+                  profileCompleted: true,
+                }
+              : user,
+          ),
+        };
+      });
+    } catch {
+      // profile refresh failure is non-fatal
+    }
+  }, [updateState]);
+
+  const handleFamilySyncEvent = useCallback(
+    async (payload: FamilySyncPayload) => {
+      if (!payload.familyId || !payload.eventType) {
+        return;
+      }
+
+      const activeId = activeFamilyIdRef.current;
+      if (payload.familyId !== activeId) {
+        return;
+      }
+
+      const plan = getRefetchPlan(payload.eventType);
+      const dedupKey = buildRefetchDedupKey(payload, plan);
+
+      if (shouldSkipDuplicateRefetch(dedupKey)) {
+        return;
+      }
+
+      if (plan.families || plan.resolveActiveFamily) {
+        await refreshFamilies();
+      }
+
+      const targetFamilyId = activeFamilyIdRef.current ?? payload.familyId;
+
+      if (plan.members && targetFamilyId) {
+        await refreshFamilyMembers(targetFamilyId, { force: true });
+      }
+
+      if (plan.profile) {
+        await refreshCurrentProfile();
+      }
+
+      if (plan.tasks && targetFamilyId) {
+        await refreshTasks(targetFamilyId, { force: true });
+      }
+    },
+    [refreshCurrentProfile, refreshFamilies, refreshFamilyMembers, refreshTasks],
   );
 
   const syncSessionWithFirebase = useCallback(
@@ -591,12 +707,40 @@ export function AppProvider({ children }: { children: ReactNode }) {
     sessionUserIdRef.current = state.session?.userId ?? null;
   }, [state.session?.userId]);
 
+  const activeFamilyId = state.session?.activeFamilyId ?? null;
+
+  useEffect(() => {
+    activeFamilyIdRef.current = activeFamilyId;
+  }, [activeFamilyId]);
+
+  useEffect(() => {
+    if (
+      !clientReady ||
+      !isReady ||
+      !isReverbConfigured() ||
+      !state.session?.userId ||
+      !activeFamilyId ||
+      familiesLoading
+    ) {
+      return;
+    }
+
+    return subscribeFamilySyncChannel(activeFamilyId, (payload) => {
+      void handleFamilySyncEvent(payload);
+    });
+  }, [
+    activeFamilyId,
+    clientReady,
+    familiesLoading,
+    handleFamilySyncEvent,
+    isReady,
+    state.session?.userId,
+  ]);
+
   const currentUser = useMemo(() => {
     if (!state.session) return null;
     return state.users.find((u) => u.id === state.session?.userId) ?? null;
   }, [state.session, state.users]);
-
-  const activeFamilyId = state.session?.activeFamilyId ?? null;
 
   useEffect(() => {
     if (!activeFamilyId || !isReady || familiesLoading) return;
@@ -752,6 +896,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   );
 
   const logout = useCallback(async () => {
+    disconnectEcho();
     setProfileLoadError(null);
     setActiveFamilyMembers([]);
     familiesSyncedUidRef.current = null;
