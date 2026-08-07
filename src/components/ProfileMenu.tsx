@@ -36,11 +36,15 @@ export function ProfileMenu() {
       <button
         type="button"
         onClick={() => setOpen((prev) => !prev)}
-        className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-amber-200 bg-amber-50 transition-colors hover:bg-amber-100"
+        className="relative h-10 w-10 shrink-0 rounded-full transition-opacity hover:opacity-90 active:opacity-80 sm:h-11 sm:w-11"
         aria-label="プロフィールメニューを開く"
         aria-expanded={open}
       >
-        <UserAvatar user={currentUser} size="sm" />
+        <UserAvatar
+          user={currentUser}
+          size="md"
+          className="!h-10 !w-10 !bg-transparent !text-sm sm:!h-11 sm:!w-11 sm:!text-base"
+        />
       </button>
 
       {open && (

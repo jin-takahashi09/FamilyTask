@@ -32,6 +32,16 @@ export function resolveLocalProfileImage(
   return null;
 }
 
+/** Prefer profileImage stored locally (localStorage) when API has none. */
+export function withLocalProfileImage(
+  user: UserProfile,
+  existingUsers: UserProfile[],
+): UserProfile {
+  const localImage = resolveLocalProfileImage(user.id, existingUsers);
+  if (!localImage) return user;
+  return { ...user, profileImage: localImage };
+}
+
 export type ProfileFetchStatus = "loaded" | "missing" | "unavailable";
 
 export function mergeFirestoreProfile(

@@ -6,6 +6,7 @@ import {
   mergeFirestoreProfile,
   profileFormToApiPayload,
   resolveLocalProfileImage,
+  withLocalProfileImage,
 } from "../src/lib/profile-utils.ts";
 import {
   isProfileImageWithinSizeLimit,
@@ -188,6 +189,35 @@ record(
       profileCompleted: true,
     },
   ]) === "data:image/webp;base64,compressed",
+);
+
+console.log("\n## 9. familyMembers向けlocal画像マージ");
+const apiMember = {
+  id: "uid-1",
+  email: "a@example.com",
+  displayName: "ユーザーA",
+  profileImage: null,
+  profileCompleted: true,
+};
+const mergedMember = withLocalProfileImage(apiMember, [
+  {
+    id: "uid-1",
+    email: "a@example.com",
+    displayName: "ユーザーA",
+    profileImage: "data:image/webp;base64,local-avatar",
+    profileCompleted: true,
+  },
+]);
+record(
+  "APIに画像なしでもlocal画像を反映",
+  mergedMember.profileImage === "data:image/webp;base64,local-avatar",
+);
+record(
+  "localにも画像なしならnullのまま",
+  withLocalProfileImage(
+    { ...apiMember, id: "uid-2" },
+    [{ ...apiMember, id: "uid-1", profileImage: "data:image/webp;base64,x" }],
+  ).profileImage === null,
 );
 
 const failed = results.filter((r) => !r.pass);

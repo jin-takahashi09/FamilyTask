@@ -49,6 +49,7 @@ import {
   applySavedProfile,
   mergeFirestoreProfile,
   profileFormToApiPayload,
+  withLocalProfileImage,
   type ProfileFetchStatus,
 } from "@/lib/profile-utils";
 import {
@@ -879,7 +880,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
     if (activeFamilyMembers.length > 0 && membersFamilyId === currentFamilyId) {
       const membersWithRole = activeFamilyMembers
         .map((member) => ({
-          ...apiMemberToUserProfile(member),
+          ...withLocalProfileImage(
+            apiMemberToUserProfile(member),
+            state.users,
+          ),
           role: member.role,
         }))
         .filter((user) => user.profileCompleted);
