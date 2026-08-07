@@ -275,10 +275,10 @@ class FamilyServiceDeleteTest extends TestCase
             if ($individualDeleteThrows !== null) {
                 $ref->shouldReceive('delete')->andThrow($individualDeleteThrows);
             } else {
-                $ref->shouldReceive('delete')->andReturnUsing(function () use (&$deletedMembershipIds, $membership): null {
+                $ref->shouldReceive('delete')->andReturnUsing(function () use (&$deletedMembershipIds, $membership): array {
                     $deletedMembershipIds[] = $membership->id;
 
-                    return null;
+                    return [];
                 });
             }
 
@@ -328,7 +328,7 @@ class FamilyServiceDeleteTest extends TestCase
 
         $client = Mockery::mock(FirestoreClient::class);
         if ($expectedBatchDeletes > 0) {
-            $client->shouldReceive('batch')->once()->andReturn($batch);
+            $client->shouldReceive('bulkWriter')->once()->andReturn($batch);
         }
         $client->shouldReceive('collection')
             ->with('memberships')

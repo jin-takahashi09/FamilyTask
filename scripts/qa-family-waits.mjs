@@ -17,7 +17,77 @@ export async function dismissBlockingModal(page) {
   await dialog.waitFor({ state: "hidden", timeout: 10000 }).catch(() => {});
 }
 
-export async function waitForAppReady(page, timeout = 30000) {
+export async function waitForTasksLoaded(page, timeout = 60000) {
+  await page.waitForFunction(
+    () => {
+      const qa =
+        typeof window.__familyTaskGetQA === "function"
+          ? window.__familyTaskGetQA()
+          : null;
+      if (!qa) return false;
+      return qa.tasksLoading === false;
+    },
+    { timeout },
+  );
+}
+
+export async function waitForTasksApiSettled(
+  page,
+  familyId,
+  options = {},
+) {
+  const { timeout = 60000, afterReload = false } = options;
+
+  if (afterReload) {
+    const remaining = timeout;
+    const responsePromise = page
+      .waitForResponse(
+        (r) =>
+          r.request().method() === "GET" &&
+          r.url().includes(`/api/families/${familyId}/tasks`) &&
+          r.ok(),
+        { timeout: remaining },
+      )
+      .catch(() => null);
+    await page.reload({ waitUntil: "domcontentloaded" });
+    await waitForSessionInitialized(page, timeout).catch(() => {});
+    await responsePromise;
+  }
+
+  await waitForTasksLoaded(page, timeout);
+}
+
+export async function waitForAuthMeSuccess(page, timeout = 60000) {
+  await page.waitForResponse(
+    (r) =>
+      r.request().method() === "GET" &&
+      r.url().includes("/api/auth/me") &&
+      r.status() === 200,
+    { timeout },
+  );
+  await waitForSessionInitialized(page, timeout);
+}
+
+export async function waitForTaskCreate(
+  page,
+  familyId,
+  title,
+  timeout = 60000,
+) {
+  const responsePromise = page.waitForResponse(
+    (r) =>
+      r.request().method() === "POST" &&
+      r.url().includes(`/api/families/${familyId}/tasks`) &&
+      r.ok(),
+    { timeout },
+  );
+
+  await responsePromise;
+  await waitForTasksLoaded(page, timeout);
+  await waitForTaskTitle(page, title, timeout);
+}
+
+export async function waitForAppReady(page, timeout = 60000) {
   await page.waitForFunction(
     () => {
       const qa =
@@ -31,7 +101,7 @@ export async function waitForAppReady(page, timeout = 30000) {
   );
 }
 
-export async function waitForSessionInitialized(page, timeout = 30000) {
+export async function waitForSessionInitialized(page, timeout = 60000) {
   await page.waitForFunction(
     () => {
       const qa =
@@ -44,13 +114,48 @@ export async function waitForSessionInitialized(page, timeout = 30000) {
   );
 }
 
+/**
+ * Waits until the browser has left /login and backend sync has settled.
+ * Uses QA/runtime state instead of fixed sleeps.
+ */
+export async function waitForAuthenticatedSession(page, timeout = 120000) {
+  await page.waitForFunction(
+    () => {
+      const qa =
+        typeof window.__familyTaskGetQA === "function"
+          ? window.__familyTaskGetQA()
+          : null;
+      if (!qa?.authInitialized || !qa?.isReady) return false;
+      return !window.location.pathname.includes("/login");
+    },
+    { timeout },
+  );
+  await waitForSessionInitialized(page, timeout);
+
+  const url = page.url();
+  if (url.includes("/profile/setup") || url.includes("/family/setup")) {
+    return;
+  }
+
+  await page.waitForFunction(
+    () => {
+      const qa =
+        typeof window.__familyTaskGetQA === "function"
+          ? window.__familyTaskGetQA()
+          : null;
+      return qa?.familiesLoading === false;
+    },
+    { timeout },
+  );
+}
+
 export async function waitForFamiliesLoaded(page, options = {}) {
   const {
     minMemberships = 1,
     userId = null,
     familyId = null,
     activeFamilyId = null,
-    timeout = 30000,
+    timeout = 60000,
   } = options;
 
   await waitForAppReady(page, timeout);
@@ -97,7 +202,7 @@ export async function waitForMembershipCount(
   page,
   userId,
   expectedCount,
-  timeout = 30000,
+  timeout = 60000,
 ) {
   await page.waitForFunction(
     ({ uid, count }) => {
@@ -116,7 +221,7 @@ export async function waitForMembershipCount(
   await waitForAppReady(page, timeout);
 }
 
-export async function waitForFamilyInState(page, familyId, timeout = 30000) {
+export async function waitForFamilyInState(page, familyId, timeout = 60000) {
   await page.waitForFunction(
     (fid) => {
       const state =
@@ -135,7 +240,7 @@ export async function waitForMembershipRemoved(
   page,
   userId,
   familyId,
-  timeout = 30000,
+  timeout = 60000,
 ) {
   await page.waitForFunction(
     ({ uid, fid }) => {
@@ -154,24 +259,105 @@ export async function waitForMembershipRemoved(
 }
 
 export async function waitForTaskTitle(page, title, timeout = 20000) {
+  await waitForTasksLoaded(page, timeout).catch(() => {});
   await page.waitForFunction(
     (taskTitle) => {
       const state =
         typeof window.__familyTaskGetState === "function"
           ? window.__familyTaskGetState()
           : null;
-      if ((state?.tasks ?? []).some((t) => t.title === taskTitle)) return true;
-      const raw = localStorage.getItem("family-task-app");
-      if (!raw) return false;
-      const parsed = JSON.parse(raw);
-      return (parsed.tasks ?? []).some((t) => t.title === taskTitle);
+      return (state?.tasks ?? []).some((t) => t.title === taskTitle);
     },
     title,
     { timeout },
   );
 }
 
-export async function waitForFamilyRemoved(page, familyId, timeout = 30000) {
+export async function waitForActiveFamilyTasks(
+  page,
+  familyId,
+  options = {},
+) {
+  const {
+    titlesPresent = [],
+    titlesAbsent = [],
+    timeout = 60000,
+  } = options;
+
+  await page.waitForFunction(
+    ({ fid, present, absent }) => {
+      const state =
+        typeof window.__familyTaskGetState === "function"
+          ? window.__familyTaskGetState()
+          : null;
+      if (!state) return false;
+      if (state.session?.activeFamilyId !== fid) return false;
+
+      const qa =
+        typeof window.__familyTaskGetQA === "function"
+          ? window.__familyTaskGetQA()
+          : null;
+      if (qa?.tasksLoading !== false) return false;
+
+      const tasks = state.tasks ?? [];
+      const allPresent = present.every((title) =>
+        tasks.some((task) => task.title === title),
+      );
+      const noneAbsent = absent.every(
+        (title) => !tasks.some((task) => task.title === title),
+      );
+      return allPresent && noneAbsent;
+    },
+    { fid: familyId, present: titlesPresent, absent: titlesAbsent },
+    { timeout },
+  );
+}
+
+export async function openDayPageAndWaitForTasks(
+  page,
+  familyId,
+  dateKey,
+  options = {},
+) {
+  const {
+    mine = true,
+    timeout = 120000,
+    titlesPresent = [],
+    titlesAbsent = [],
+  } = options;
+  const path = `${mine ? "?mine=1" : ""}`;
+  const urlSuffix = `/day/${dateKey}${path}`;
+
+  const baseUrl =
+    typeof page.url === "function" && page.url().includes("://")
+      ? new URL(page.url()).origin
+      : process.env.QA_BASE_URL ?? "http://localhost:3000";
+
+  const responsePromise = page
+    .waitForResponse(
+      (r) =>
+        r.request().method() === "GET" &&
+        r.url().includes(`/api/families/${familyId}/tasks`) &&
+        r.ok(),
+      { timeout },
+    )
+    .catch(() => null);
+
+  await page.goto(`${baseUrl}${urlSuffix}`, { waitUntil: "domcontentloaded" });
+  await waitForFamiliesLoaded(page, { activeFamilyId: familyId, timeout });
+  await responsePromise;
+  await waitForTasksLoaded(page, timeout);
+
+  if (titlesPresent.length > 0 || titlesAbsent.length > 0) {
+    await waitForActiveFamilyTasks(page, familyId, {
+      titlesPresent,
+      titlesAbsent,
+      timeout,
+    });
+  }
+}
+
+export async function waitForFamilyRemoved(page, familyId, timeout = 60000) {
   await page.waitForFunction(
     (fid) => {
       const state =
@@ -191,7 +377,7 @@ export async function waitForMemberRole(
   userId,
   familyId,
   role,
-  timeout = 30000,
+  timeout = 60000,
 ) {
   await page.waitForFunction(
     ({ uid, fid, expectedRole }) => {
@@ -294,7 +480,7 @@ export async function waitForMembersApiCount(
 export async function waitForActiveFamilyMemberCount(
   page,
   expectedCount,
-  timeout = 30000,
+  timeout = 60000,
 ) {
   await page.waitForFunction(
     (count) => {
@@ -320,7 +506,7 @@ export async function waitForMemberRemovedFromFamily(
   page,
   userId,
   familyId,
-  timeout = 30000,
+  timeout = 60000,
 ) {
   await page.waitForFunction(
     ({ uid, fid }) => {

@@ -26,7 +26,7 @@ export function AlarmWatcher() {
               body: `${task.title} の締切時間です`,
             });
           }
-          updateTask(task.id, { alarmEnabled: false });
+          updateTask(task.id, { alarmEnabled: false }).catch(() => {});
         }
       });
     };

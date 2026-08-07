@@ -7,12 +7,13 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "qa:multi-group": "firebase emulators:exec --only auth --project demo-familytask \"node scripts/qa-multi-group-harness.mjs\"",
+    "qa:multi-group": "node scripts/qa-preflight.mjs && firebase emulators:exec --only auth --project demo-familytask \"node scripts/qa-multi-group-harness.mjs\"",
     "qa:migration": "npx tsx scripts/qa-migration.mjs",
     "qa:recurring-tasks": "npx tsx scripts/qa-recurring-tasks.mjs",
     "qa:firebase-auth": "npx tsx scripts/qa-firebase-auth.mjs",
     "qa:profile": "npx tsx scripts/qa-profile.mjs",
-    "qa:families": "firebase emulators:exec --only auth --project demo-familytask \"node scripts/qa-families-harness.mjs\" && npx tsx scripts/qa-families.mjs"
+    "qa:families": "firebase emulators:exec --only auth --project demo-familytask \"node scripts/qa-families-harness.mjs\" && npx tsx scripts/qa-families.mjs",
+    "qa:tasks": "node scripts/qa-preflight.mjs && firebase emulators:exec --only auth --project demo-familytask \"node scripts/qa-tasks-harness.mjs\""
   },
   "dependencies": {
     "date-fns": "^4.4.0",

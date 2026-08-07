@@ -1,6 +1,6 @@
 /**
  * Starts isolated Next.js + Laravel servers against the Firebase Auth emulator,
- * then runs scripts/qa-multi-group.mjs.
+ * then runs scripts/qa-tasks-e2e.mjs.
  */
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -18,8 +18,8 @@ import {
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const root = path.resolve(__dirname, "..");
-const QA_PORT = process.env.QA_PORT ?? "3099";
-const API_PORT = process.env.QA_API_PORT ?? "8099";
+const QA_PORT = process.env.QA_PORT ?? "3098";
+const API_PORT = process.env.QA_API_PORT ?? "8098";
 const MANAGED_PORTS = [Number(QA_PORT), Number(API_PORT)];
 const emulatorHost =
   process.env.FIREBASE_AUTH_EMULATOR_HOST ?? "127.0.0.1:9099";
@@ -96,12 +96,11 @@ async function main() {
     emulatorHost,
   });
 
-  const runId = makeRunId("qa-multi-group");
+  const runId = makeRunId("qa-tasks");
   console.log(`QA runId: ${runId}`);
-  console.log("Running multi-group QA...\n");
 
   return new Promise((resolve) => {
-    const qa = trackProcess(children, "qa", "node", ["scripts/qa-multi-group.mjs"], {
+    const qa = trackProcess(children, "qa", "node", ["scripts/qa-tasks-e2e.mjs"], {
       cwd: root,
       env: {
         ...process.env,
@@ -122,7 +121,7 @@ try {
   exitCode = await main();
 } finally {
   await stopManagedProcesses(children);
-  await assertPortsFree(MANAGED_PORTS, "qa:multi-group");
+  await assertPortsFree(MANAGED_PORTS, "qa:tasks");
 }
 
 process.exit(exitCode);

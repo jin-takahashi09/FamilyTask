@@ -13,7 +13,6 @@ import {
 } from "react";
 import { DEFAULT_STATE, loadState, saveState } from "@/lib/storage";
 import {
-  attachOrphanTasksToFamily,
   getFamilyMembers,
   getFamilyTasks,
   getMembershipInFamily,
@@ -24,11 +23,7 @@ import {
   resolveActiveFamilyId,
   sortMembersForDisplay,
 } from "@/lib/family-utils";
-import {
-  canCurrentUserCreateTask,
-  getRecurringDeleteTargetIds,
-} from "@/lib/task-utils";
-import { generateRecurringDates } from "@/lib/recurrence-utils";
+import { canCurrentUserCreateTask } from "@/lib/task-utils";
 import type {
   AddTaskResult,
   AppState,
@@ -82,6 +77,16 @@ import {
   transferFamilyOwnership as apiTransferOwnership,
   type ApiFamilyMember,
 } from "@/lib/api/families";
+import {
+  createFamilyTasks,
+  deleteFamilyRecurrence,
+  deleteFamilyTask,
+  fetchFamilyTasks,
+  mapCreateTaskInput,
+  mapUpdateTaskInput,
+  toggleFamilyTaskCompleted,
+  updateFamilyTask,
+} from "@/lib/api/tasks";
 
 type LoginResult =
   | { success: true; profileCompleted: boolean; hasFamily: boolean }
@@ -111,6 +116,7 @@ type AppContextValue = {
   hasFamily: boolean;
   isReady: boolean;
   familiesLoading: boolean;
+  tasksLoading: boolean;
   profileLoadError: string | null;
   login: (email: string, password: string) => Promise<LoginResult>;
   register: (
@@ -139,18 +145,19 @@ type AppContextValue = {
   getOtherFamilyMembers: () => UserProfile[];
   addTask: (
     task: Omit<Task, "id" | "createdAt" | "familyId" | "recurrenceGroupId">,
-  ) => AddTaskResult;
-  updateTask: (id: string, updates: Partial<Task>) => void;
-  deleteTask: (id: string) => void;
+  ) => Promise<AddTaskResult>;
+  updateTask: (id: string, updates: Partial<Task>) => Promise<void>;
+  deleteTask: (id: string) => Promise<void>;
   deleteRecurringTasksFromDate: (options: {
     familyId: string;
     recurrenceGroupId: string;
     fromDate: string;
-  }) => void;
+  }) => Promise<void>;
   deleteRecurringTaskSeries: (options: {
     familyId: string;
     recurrenceGroupId: string;
-  }) => void;
+  }) => Promise<void>;
+  toggleTaskCompleted: (id: string, completed: boolean) => Promise<void>;
   taskSortOrder: TaskSortOrder;
   setTaskSortOrder: (order: TaskSortOrder) => void;
   getTasksByDate: (dateKey: string) => Task[];
@@ -298,6 +305,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [authInitialized, setAuthInitialized] = useState(false);
   const [profileLoadError, setProfileLoadError] = useState<string | null>(null);
   const [familiesLoading, setFamiliesLoading] = useState(false);
+  const [tasksLoading, setTasksLoading] = useState(false);
   const [activeFamilyMembers, setActiveFamilyMembers] = useState<ApiFamilyMember[]>(
     [],
   );
@@ -308,6 +316,15 @@ export function AppProvider({ children }: { children: ReactNode }) {
     familyId: string;
     promise: Promise<void>;
   } | null>(null);
+  const tasksFetchRef = useRef<{
+    familyId: string;
+    promise: Promise<void>;
+  } | null>(null);
+  const tasksFetchGenerationRef = useRef(0);
+
+  const invalidateTasksFetch = useCallback(() => {
+    tasksFetchGenerationRef.current += 1;
+  }, []);
   const firebaseConfigured = isFirebaseConfigured();
   const isReady =
     clientReady && (authInitialized || !firebaseConfigured);
@@ -337,11 +354,12 @@ export function AppProvider({ children }: { children: ReactNode }) {
     };
     win.__familyTaskGetQA = () => ({
       familiesLoading,
+      tasksLoading,
       isReady,
       authInitialized,
       activeFamilyMemberCount: activeFamilyMembers.length,
     });
-  }, [clientReady, familiesLoading, isReady, authInitialized, activeFamilyMembers.length]);
+  }, [clientReady, familiesLoading, tasksLoading, isReady, authInitialized, activeFamilyMembers.length]);
 
   useEffect(() => {
     if (!isReady) return;
@@ -388,6 +406,46 @@ export function AppProvider({ children }: { children: ReactNode }) {
     [updateState],
   );
 
+  const refreshTasks = useCallback(
+    async (familyId: string, options: { force?: boolean } = {}) => {
+      if (!options.force && tasksFetchRef.current?.familyId === familyId) {
+        return tasksFetchRef.current.promise;
+      }
+
+      const promise = (async () => {
+        const generation = ++tasksFetchGenerationRef.current;
+        setTasksLoading(true);
+        try {
+          const tasks = await fetchFamilyTasks(familyId);
+          updateState((prev) => {
+            if (generation !== tasksFetchGenerationRef.current) {
+              return prev;
+            }
+            if (prev.session?.activeFamilyId !== familyId) {
+              return prev;
+            }
+            return { ...prev, tasks };
+          });
+        } catch {
+          // task refresh failure is non-fatal
+        } finally {
+          setTasksLoading(false);
+        }
+      })();
+
+      tasksFetchRef.current = { familyId, promise };
+
+      try {
+        await promise;
+      } finally {
+        if (tasksFetchRef.current?.familyId === familyId) {
+          tasksFetchRef.current = null;
+        }
+      }
+    },
+    [updateState],
+  );
+
   const syncSessionWithFirebase = useCallback(
     async (firebaseUser: FirebaseUser | null): Promise<LoginResult> => {
       if (syncSessionPromiseRef.current) {
@@ -406,7 +464,13 @@ export function AppProvider({ children }: { children: ReactNode }) {
               activeFamilyPreferences[userId] = activeFamilyId;
             }
             sessionUserIdRef.current = null;
-            return { ...prev, session: null, activeFamilyPreferences };
+            tasksFetchRef.current = null;
+            return {
+              ...prev,
+              session: null,
+              tasks: [],
+              activeFamilyPreferences,
+            };
           });
           return { success: false };
         }
@@ -539,6 +603,12 @@ export function AppProvider({ children }: { children: ReactNode }) {
     setActiveFamilyMembers([]);
     void refreshFamilyMembers(activeFamilyId);
   }, [activeFamilyId, isReady, familiesLoading, refreshFamilyMembers]);
+
+  useEffect(() => {
+    if (!activeFamilyId || !isReady || familiesLoading) return;
+    updateState((prev) => ({ ...prev, tasks: [] }));
+    void refreshTasks(activeFamilyId);
+  }, [activeFamilyId, isReady, familiesLoading, refreshTasks, updateState]);
 
   const userFamilies = useMemo(() => {
     if (!currentUser) return [];
@@ -773,10 +843,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
     if (result.success) {
       void refreshFamilyMembers(familyId);
+      void refreshTasks(familyId, { force: true });
     }
 
     return result;
-  }, [refreshFamilyMembers, updateState]);
+  }, [refreshFamilyMembers, refreshTasks, updateState]);
 
   const createFamily = useCallback(
     async (name: string): Promise<FamilyActionResult> => {
@@ -808,7 +879,6 @@ export function AppProvider({ children }: { children: ReactNode }) {
                 ),
                 created.membership,
               ],
-              tasks: attachOrphanTasksToFamily(prev.tasks, userId, created.family.id),
             },
             userId,
             nextActiveId,
@@ -816,6 +886,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         );
 
         await refreshFamilyMembers(created.family.id);
+        await refreshTasks(created.family.id, { force: true });
         return { success: true };
       } catch (error) {
         if (error instanceof FamilyActionError) {
@@ -824,7 +895,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         return { success: false, error: "グループを作成できませんでした" };
       }
     },
-    [refreshFamilyMembers, state.session?.userId, updateState],
+    [refreshFamilyMembers, refreshTasks, state.session?.userId, updateState],
   );
 
   const joinFamilyByInviteCode = useCallback(
@@ -856,7 +927,6 @@ export function AppProvider({ children }: { children: ReactNode }) {
                 ),
                 joined.membership,
               ],
-              tasks: attachOrphanTasksToFamily(prev.tasks, userId, joined.family.id),
             },
             userId,
             joined.family.id,
@@ -864,6 +934,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         );
 
         await refreshFamilyMembers(joined.family.id);
+        await refreshTasks(joined.family.id, { force: true });
         return { success: true };
       } catch (error) {
         if (error instanceof FamilyActionError) {
@@ -872,7 +943,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         return { success: false, error: "グループへの参加に失敗しました" };
       }
     },
-    [refreshFamilyMembers, state.session?.userId, updateState],
+    [refreshFamilyMembers, refreshTasks, state.session?.userId, updateState],
   );
 
   const leaveFamily = useCallback(async (): Promise<FamilyActionResult> => {
@@ -1214,84 +1285,157 @@ export function AppProvider({ children }: { children: ReactNode }) {
   }, [state.users, state.memberships, currentFamilyId, currentUser]);
 
   const addTask = useCallback(
-    (
+    async (
       task: Omit<Task, "id" | "createdAt" | "familyId" | "recurrenceGroupId">,
-    ): AddTaskResult => {
+    ): Promise<AddTaskResult> => {
       if (!currentFamilyId || !currentUser) return { success: false };
 
       if (!canCurrentUserCreateTask(task, currentUser.id)) {
         return { success: false };
       }
 
-      const dates = generateRecurringDates({
-        startDate: task.date,
-        repeatType: task.repeatType,
-        repeatEndDate: task.repeatEndDate,
-        repeatWeekday: task.repeatWeekday,
-      });
+      try {
+        const created = await createFamilyTasks(
+          currentFamilyId,
+          mapCreateTaskInput(task),
+        );
 
-      if (dates.length === 0) return { success: false };
+        updateState((prev) => ({
+          ...prev,
+          tasks: [
+            ...prev.tasks.filter(
+              (existing) =>
+                !created.some(
+                  (createdTask) => createdTask.id === existing.id,
+                ),
+            ),
+            ...created,
+          ],
+        }));
+        invalidateTasksFetch();
 
-      const recurrenceGroupId =
-        task.repeatType === "none" ? null : crypto.randomUUID();
-      const createdAt = new Date().toISOString();
+        const recurrenceGroupId = created[0]?.recurrenceGroupId ?? null;
 
-      const newTasks: Task[] = dates.map((date) => ({
-        ...task,
-        date,
-        familyId: currentFamilyId,
-        id: crypto.randomUUID(),
-        recurrenceGroupId,
-        createdAt,
-        completed: false,
-      }));
-
-      updateState((prev) => ({
-        ...prev,
-        tasks: [...prev.tasks, ...newTasks],
-      }));
-
-      return {
-        success: true,
-        createdCount: newTasks.length,
-        recurrenceGroupId,
-      };
+        return {
+          success: true,
+          createdCount: created.length,
+          recurrenceGroupId,
+        };
+      } catch {
+        return { success: false };
+      }
     },
-    [currentFamilyId, currentUser, updateState],
+    [currentFamilyId, currentUser, invalidateTasksFetch, updateState],
   );
 
   const updateTask = useCallback(
-    (id: string, updates: Partial<Task>) => {
+    async (id: string, updates: Partial<Task>) => {
       if (!currentFamilyId) return;
+
+      const previous = state.tasks.find(
+        (task) => task.id === id && task.familyId === currentFamilyId,
+      );
+      if (!previous) return;
+
+      updateState((prev) => ({
+        ...prev,
+        tasks: prev.tasks.map((t) =>
+          t.id === id && t.familyId === currentFamilyId ? { ...t, ...updates } : t,
+        ),
+      }));
+
+      try {
+        const updated = await updateFamilyTask(
+          currentFamilyId,
+          id,
+          mapUpdateTaskInput(updates),
+        );
+        updateState((prev) => ({
+          ...prev,
+          tasks: prev.tasks.map((t) =>
+            t.id === id && t.familyId === currentFamilyId ? updated : t,
+          ),
+        }));
+        invalidateTasksFetch();
+      } catch {
+        updateState((prev) => ({
+          ...prev,
+          tasks: prev.tasks.map((t) =>
+            t.id === id && t.familyId === currentFamilyId ? previous : t,
+          ),
+        }));
+      }
+    },
+    [currentFamilyId, invalidateTasksFetch, state.tasks, updateState],
+  );
+
+  const toggleTaskCompleted = useCallback(
+    async (id: string, completed: boolean) => {
+      if (!currentFamilyId) return;
+
+      const previous = state.tasks.find(
+        (task) => task.id === id && task.familyId === currentFamilyId,
+      );
+      if (!previous) return;
 
       updateState((prev) => ({
         ...prev,
         tasks: prev.tasks.map((t) =>
           t.id === id && t.familyId === currentFamilyId
-            ? { ...t, ...updates }
+            ? { ...t, completed }
             : t,
         ),
       }));
+
+      try {
+        const updated = await toggleFamilyTaskCompleted(
+          currentFamilyId,
+          id,
+          completed,
+        );
+        updateState((prev) => ({
+          ...prev,
+          tasks: prev.tasks.map((t) =>
+            t.id === id && t.familyId === currentFamilyId ? updated : t,
+          ),
+        }));
+        invalidateTasksFetch();
+      } catch {
+        updateState((prev) => ({
+          ...prev,
+          tasks: prev.tasks.map((t) =>
+            t.id === id && t.familyId === currentFamilyId ? previous : t,
+          ),
+        }));
+      }
     },
-    [currentFamilyId, updateState],
+    [currentFamilyId, invalidateTasksFetch, state.tasks, updateState],
   );
 
   const deleteTask = useCallback(
-    (id: string) => {
+    async (id: string) => {
       if (!currentFamilyId) return;
 
+      const previousTasks = state.tasks;
       updateState((prev) => ({
         ...prev,
         tasks: prev.tasks.filter(
           (t) => !(t.id === id && t.familyId === currentFamilyId),
         ),
       }));
+
+      try {
+        await deleteFamilyTask(currentFamilyId, id);
+        invalidateTasksFetch();
+      } catch {
+        updateState((prev) => ({ ...prev, tasks: previousTasks }));
+      }
     },
-    [currentFamilyId, updateState],
+    [currentFamilyId, invalidateTasksFetch, state.tasks, updateState],
   );
 
   const deleteRecurringTasksFromDate = useCallback(
-    ({
+    async ({
       familyId,
       recurrenceGroupId,
       fromDate,
@@ -1302,26 +1446,34 @@ export function AppProvider({ children }: { children: ReactNode }) {
     }) => {
       if (!currentFamilyId || currentFamilyId !== familyId) return;
 
-      updateState((prev) => {
-        const deleteIds = new Set(
-          getRecurringDeleteTargetIds(prev.tasks, {
-            familyId,
-            recurrenceGroupId,
-            mode: "fromDate",
-            fromDate,
-          }),
-        );
-        return {
-          ...prev,
-          tasks: prev.tasks.filter((t) => !deleteIds.has(t.id)),
-        };
-      });
+      const previousTasks = state.tasks;
+      updateState((prev) => ({
+        ...prev,
+        tasks: prev.tasks.filter(
+          (task) =>
+            !(
+              task.familyId === familyId &&
+              task.recurrenceGroupId === recurrenceGroupId &&
+              task.date >= fromDate
+            ),
+        ),
+      }));
+
+      try {
+        await deleteFamilyRecurrence(familyId, recurrenceGroupId, {
+          scope: "future",
+          fromDate,
+        });
+        invalidateTasksFetch();
+      } catch {
+        updateState((prev) => ({ ...prev, tasks: previousTasks }));
+      }
     },
-    [currentFamilyId, updateState],
+    [currentFamilyId, invalidateTasksFetch, state.tasks, updateState],
   );
 
   const deleteRecurringTaskSeries = useCallback(
-    ({
+    async ({
       familyId,
       recurrenceGroupId,
     }: {
@@ -1330,21 +1482,28 @@ export function AppProvider({ children }: { children: ReactNode }) {
     }) => {
       if (!currentFamilyId || currentFamilyId !== familyId) return;
 
-      updateState((prev) => {
-        const deleteIds = new Set(
-          getRecurringDeleteTargetIds(prev.tasks, {
-            familyId,
-            recurrenceGroupId,
-            mode: "series",
-          }),
-        );
-        return {
-          ...prev,
-          tasks: prev.tasks.filter((t) => !deleteIds.has(t.id)),
-        };
-      });
+      const previousTasks = state.tasks;
+      updateState((prev) => ({
+        ...prev,
+        tasks: prev.tasks.filter(
+          (task) =>
+            !(
+              task.familyId === familyId &&
+              task.recurrenceGroupId === recurrenceGroupId
+            ),
+        ),
+      }));
+
+      try {
+        await deleteFamilyRecurrence(familyId, recurrenceGroupId, {
+          scope: "all",
+        });
+        invalidateTasksFetch();
+      } catch {
+        updateState((prev) => ({ ...prev, tasks: previousTasks }));
+      }
     },
-    [currentFamilyId, updateState],
+    [currentFamilyId, invalidateTasksFetch, state.tasks, updateState],
   );
 
   const getTasksByDate = useCallback(
@@ -1410,6 +1569,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       hasFamily,
       isReady,
       familiesLoading,
+      tasksLoading,
       profileLoadError,
       login,
       register,
@@ -1431,6 +1591,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       deleteTask,
       deleteRecurringTasksFromDate,
       deleteRecurringTaskSeries,
+      toggleTaskCompleted,
       taskSortOrder,
       setTaskSortOrder,
       getTasksByDate,
@@ -1449,6 +1610,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       hasFamily,
       isReady,
       familiesLoading,
+      tasksLoading,
       profileLoadError,
       login,
       register,
@@ -1470,6 +1632,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       deleteTask,
       deleteRecurringTasksFromDate,
       deleteRecurringTaskSeries,
+      toggleTaskCompleted,
       taskSortOrder,
       setTaskSortOrder,
       getTasksByDate,

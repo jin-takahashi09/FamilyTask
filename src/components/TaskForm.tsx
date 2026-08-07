@@ -136,7 +136,7 @@ export function TaskForm({
     setOpen(false);
   };
 
-  const handleSubmit = (e: FormEvent) => {
+  const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
     if (isSubmitting || !title.trim() || !currentUserId) return;
 
@@ -161,7 +161,7 @@ export function TaskForm({
       );
 
       if (isEdit && task) {
-        updateTask(task.id, {
+        await updateTask(task.id, {
           title: title.trim(),
           requesterId: memberIds.requesterId,
           assigneeId: memberIds.assigneeId,
@@ -171,7 +171,7 @@ export function TaskForm({
         });
         onSaved?.();
       } else {
-        const result = addTask({
+        const result = await addTask({
           date: dateKey,
           title: title.trim(),
           requesterId: memberIds.requesterId,

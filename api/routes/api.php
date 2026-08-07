@@ -4,6 +4,7 @@ use App\Http\Controllers\AuthMeController;
 use App\Http\Controllers\FamilyController;
 use App\Http\Controllers\FirestoreHealthController;
 use App\Http\Controllers\ProfileController;
+use App\Http\Controllers\TaskController;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
 
@@ -32,6 +33,14 @@ Route::middleware('firebase.auth')->group(function () {
     Route::post('/families/{familyId}/transfer-ownership', [FamilyController::class, 'transferOwnership']);
     Route::delete('/families/{familyId}', [FamilyController::class, 'destroy']);
     Route::post('/families/{familyId}/invite-code/regenerate', [FamilyController::class, 'regenerateInviteCode']);
+
+    Route::get('/families/{familyId}/tasks', [TaskController::class, 'index']);
+    Route::post('/families/{familyId}/tasks', [TaskController::class, 'store']);
+    Route::get('/families/{familyId}/tasks/{taskId}', [TaskController::class, 'show']);
+    Route::put('/families/{familyId}/tasks/{taskId}', [TaskController::class, 'update']);
+    Route::patch('/families/{familyId}/tasks/{taskId}/complete', [TaskController::class, 'complete']);
+    Route::delete('/families/{familyId}/tasks/{taskId}', [TaskController::class, 'destroy']);
+    Route::delete('/families/{familyId}/recurrences/{recurrenceGroupId}', [TaskController::class, 'destroyRecurrence']);
 });
 
 Route::get('/user', function (Request $request) {

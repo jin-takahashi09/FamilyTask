@@ -2,14 +2,10 @@ import type {
   AppState,
   FamilyGroup,
   FamilyMembership,
-  RepeatType,
-  Task,
   TaskSortOrder,
   UserProfile,
 } from "./types";
 import { resolveActiveFamilyId } from "./family-utils";
-import { parseDateKey } from "./date-utils";
-import { getDay } from "date-fns";
 import { normalizeTaskSortOrder } from "./task-sort-utils";
 
 export const STORAGE_KEY = "family-task-app";
@@ -32,7 +28,7 @@ type LegacyState = Partial<AppState> & {
     name?: string;
     memberId?: string;
   } | null;
-  tasks?: Array<Partial<Task> & Record<string, unknown>>;
+  tasks?: Array<Record<string, unknown>>;
 };
 
 function migrateLegacyUser(
@@ -45,63 +41,6 @@ function migrateLegacyUser(
     profileImage: null,
     profileCompleted: Boolean(legacy.name && legacy.name !== "ユーザー"),
   };
-}
-
-function normalizeRepeatType(value: unknown): RepeatType {
-  if (
-    value === "daily" ||
-    value === "weekly" ||
-    value === "monthly" ||
-    value === "yearly"
-  ) {
-    return value;
-  }
-  return "none";
-}
-
-function normalizeRepeatWeekday(
-  value: unknown,
-  repeatType: RepeatType,
-  date: string,
-): number | null {
-  if (repeatType !== "weekly") return null;
-  if (typeof value === "number" && value >= 0 && value <= 6) {
-    return value;
-  }
-  try {
-    return getDay(parseDateKey(date));
-  } catch {
-    return 0;
-  }
-}
-
-function migrateTasks(raw: LegacyState): Task[] {
-  if (!Array.isArray(raw.tasks)) return [];
-  return raw.tasks
-    .filter((t) => t && typeof t.id === "string" && typeof t.date === "string")
-    .map((t) => ({
-      id: t.id as string,
-      familyId: typeof t.familyId === "string" ? t.familyId : "",
-      date: t.date as string,
-      title: (t.title as string) ?? "",
-      requesterId: (t.requesterId as string | null) ?? null,
-      assigneeId: (t.assigneeId as string | null) ?? null,
-      deadlineTime: (t.deadlineTime as string | null) ?? null,
-      completed: Boolean(t.completed),
-      alarmEnabled: t.alarmEnabled !== false,
-      notifyOnComplete: Boolean(t.notifyOnComplete),
-      createdAt: (t.createdAt as string) ?? new Date().toISOString(),
-      repeatType: normalizeRepeatType(t.repeatType),
-      repeatWeekday: normalizeRepeatWeekday(
-        t.repeatWeekday,
-        normalizeRepeatType(t.repeatType),
-        t.date as string,
-      ),
-      repeatEndDate:
-        typeof t.repeatEndDate === "string" ? t.repeatEndDate : null,
-      recurrenceGroupId:
-        typeof t.recurrenceGroupId === "string" ? t.recurrenceGroupId : null,
-    }));
 }
 
 export function migrateState(raw: LegacyState): AppState {
@@ -184,7 +123,7 @@ export function migrateState(raw: LegacyState): AppState {
     users,
     families,
     memberships,
-    tasks: migrateTasks(raw),
+    tasks: [],
     session,
     activeFamilyPreferences,
     taskSortPreferences,
@@ -211,6 +150,7 @@ export function saveState(state: AppState): void {
       ...state,
       families: [],
       memberships: [],
+      tasks: [],
     }),
   );
 }

@@ -441,7 +441,7 @@ class FamilyService
         }
 
         try {
-            $batch = $client->batch();
+            $batch = $client->bulkWriter();
 
             foreach ($refs as $ref) {
                 $batch->delete($ref);

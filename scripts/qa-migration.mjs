@@ -107,15 +107,11 @@ const legacyTasks = migrateState({
   ],
   session: { userId, activeFamilyId: "f1" },
 });
-const t = legacyTasks.tasks[0];
 record(
-  "旧タスクにrepeat項目補完",
-  t.repeatType === "none" &&
-    t.repeatEndDate === null &&
-    t.recurrenceGroupId === null &&
-    t.repeatWeekday === null,
+  "旧localStorageタスクは読み込まない",
+  legacyTasks.tasks.length === 0,
+  `count=${legacyTasks.tasks.length}`,
 );
-record("旧タスクのfamilyIdは保持", t.familyId === "f1");
 
 const failed = results.filter((r) => !r.pass);
 console.log(`\nMigration: ${results.length - failed.length}/${results.length} passed\n`);

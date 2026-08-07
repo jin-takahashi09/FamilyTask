@@ -105,9 +105,9 @@ export function TaskList({
         return true;
       });
 
-  const handleComplete = (task: Task) => {
+  const handleComplete = async (task: Task) => {
     const nextCompleted = !task.completed;
-    updateTask(task.id, { completed: nextCompleted });
+    await updateTask(task.id, { completed: nextCompleted });
 
     if (nextCompleted && task.notifyOnComplete && task.requesterId) {
       const requester = getUserById(task.requesterId);
@@ -139,19 +139,19 @@ export function TaskList({
     setRecurringDeleteOpen(false);
   };
 
-  const handleDeleteSingle = () => {
+  const handleDeleteSingle = async () => {
     if (deleteTarget) {
-      deleteTask(deleteTarget.id);
+      await deleteTask(deleteTarget.id);
     }
     closeDeleteDialogs();
   };
 
-  const handleDeleteFromDate = () => {
+  const handleDeleteFromDate = async () => {
     if (
       deleteTarget?.recurrenceGroupId &&
       activeFamilyId
     ) {
-      deleteRecurringTasksFromDate({
+      await deleteRecurringTasksFromDate({
         familyId: activeFamilyId,
         recurrenceGroupId: deleteTarget.recurrenceGroupId,
         fromDate: deleteTarget.date,
@@ -160,12 +160,12 @@ export function TaskList({
     closeDeleteDialogs();
   };
 
-  const handleDeleteSeries = () => {
+  const handleDeleteSeries = async () => {
     if (
       deleteTarget?.recurrenceGroupId &&
       activeFamilyId
     ) {
-      deleteRecurringTaskSeries({
+      await deleteRecurringTaskSeries({
         familyId: activeFamilyId,
         recurrenceGroupId: deleteTarget.recurrenceGroupId,
       });

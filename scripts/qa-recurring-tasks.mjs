@@ -307,20 +307,11 @@ const legacyTask = migrateState({
   ],
   session: null,
 });
-const migrated = legacyTask.tasks[0];
-const migratedWeekly = legacyTask.tasks[1];
 record(
   "4",
-  "旧localStorageにrepeatType補完",
-  migrated.repeatType === "none" &&
-    migrated.repeatEndDate === null &&
-    migrated.recurrenceGroupId === null &&
-    migrated.repeatWeekday === null,
-);
-record(
-  "4",
-  "旧weeklyにrepeatWeekday補完",
-  migratedWeekly.repeatType === "weekly" && migratedWeekly.repeatWeekday === 3,
+  "旧localStorageタスクは読み込まない",
+  legacyTask.tasks.length === 0,
+  `count=${legacyTask.tasks.length}`,
 );
 
 console.log("\n## 5. 生成シミュレーション");
