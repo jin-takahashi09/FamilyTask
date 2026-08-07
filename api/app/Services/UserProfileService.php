@@ -7,6 +7,7 @@ use App\Exceptions\ProfileServiceException;
 use App\Sync\FamilySyncEventType;
 use Google\Cloud\Core\Timestamp;
 use Google\Cloud\Firestore\DocumentSnapshot;
+use Illuminate\Support\Facades\Log;
 use Throwable;
 
 class UserProfileService
@@ -21,14 +22,24 @@ class UserProfileService
     public function findByUid(string $uid): ?UserProfileData
     {
         try {
-            $snapshot = $this->documentReference($uid)->snapshot();
+            return FirestoreRetry::run(function () use ($uid): ?UserProfileData {
+                $snapshot = $this->documentReference($uid)->snapshot();
 
-            if (! $snapshot->exists()) {
-                return null;
-            }
+                if (! $snapshot->exists()) {
+                    return null;
+                }
 
-            return $this->mapSnapshot($uid, $snapshot);
-        } catch (Throwable) {
+                return $this->mapSnapshot($uid, $snapshot);
+            }, $this->firestore);
+        } catch (ProfileServiceException $e) {
+            throw $e;
+        } catch (Throwable $e) {
+            Log::error('Profile lookup failed', [
+                'uid' => $uid,
+                'exceptionClass' => $e::class,
+                'exceptionMessage' => $e->getMessage(),
+            ]);
+
             throw new ProfileServiceException('Failed to fetch user profile.');
         }
     }
@@ -39,39 +50,47 @@ class UserProfileService
     public function upsert(string $uid, string $email, array $payload): array
     {
         try {
-            $reference = $this->documentReference($uid);
-            $snapshot = $reference->snapshot();
-            $now = new Timestamp(new \DateTimeImmutable);
+            return FirestoreRetry::run(function () use ($uid, $email, $payload): array {
+                $reference = $this->documentReference($uid);
+                $snapshot = $reference->snapshot();
+                $now = new Timestamp(new \DateTimeImmutable);
 
-            $createdAt = $snapshot->exists()
-                ? ($snapshot->get('createdAt') ?? $now)
-                : $now;
+                $createdAt = $snapshot->exists()
+                    ? ($snapshot->get('createdAt') ?? $now)
+                    : $now;
 
-            $reference->set([
-                'uid' => $uid,
-                'email' => $email,
-                'displayName' => $payload['displayName'],
-                'avatarType' => $payload['avatarType'],
-                'avatarValue' => $payload['avatarValue'],
-                'createdAt' => $createdAt,
-                'updatedAt' => $now,
-            ]);
+                $reference->set([
+                    'uid' => $uid,
+                    'email' => $email,
+                    'displayName' => $payload['displayName'],
+                    'avatarType' => $payload['avatarType'],
+                    'avatarValue' => $payload['avatarValue'],
+                    'createdAt' => $createdAt,
+                    'updatedAt' => $now,
+                ]);
 
-            $profile = $this->mapSnapshot($uid, $reference->snapshot());
+                $profile = $this->mapSnapshot($uid, $reference->snapshot());
 
-            $this->sync->dispatchForUserMemberships(
-                $uid,
-                FamilySyncEventType::ProfileUpdated,
-                $now->get(),
-            );
+                $this->sync->dispatchForUserMemberships(
+                    $uid,
+                    FamilySyncEventType::ProfileUpdated,
+                    $now->get(),
+                );
 
-            return [
-                'profile' => $profile,
-                'created' => ! $snapshot->exists(),
-            ];
+                return [
+                    'profile' => $profile,
+                    'created' => ! $snapshot->exists(),
+                ];
+            }, $this->firestore);
         } catch (ProfileServiceException $e) {
             throw $e;
-        } catch (Throwable) {
+        } catch (Throwable $e) {
+            Log::error('Profile upsert failed', [
+                'uid' => $uid,
+                'exceptionClass' => $e::class,
+                'exceptionMessage' => $e->getMessage(),
+            ]);
+
             throw new ProfileServiceException('Failed to save user profile.');
         }
     }

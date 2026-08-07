@@ -2,6 +2,7 @@ import { getFirebaseAuth } from "@/lib/firebase/client";
 import { getEchoSocketId } from "@/lib/realtime/echo";
 
 const DEFAULT_API_BASE_URL = "http://127.0.0.1:8000";
+const API_TIMEOUT_MS = 15_000;
 
 export class ApiError extends Error {
   status: number;
@@ -52,8 +53,12 @@ export async function apiFetch<T>(
     response = await fetch(`${getApiBaseUrl()}${path}`, {
       ...rest,
       headers,
+      signal: AbortSignal.timeout(API_TIMEOUT_MS),
     });
-  } catch {
+  } catch (error) {
+    if (error instanceof DOMException && error.name === "TimeoutError") {
+      throw new ApiError(0, "サーバーとの通信がタイムアウトしました");
+    }
     throw new ApiError(0, "サーバーとの通信に失敗しました");
   }
 

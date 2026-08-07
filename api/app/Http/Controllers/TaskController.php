@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Exceptions\FamilyServiceException;
 use App\Exceptions\TaskServiceException;
 use App\Services\TaskService;
 use Illuminate\Http\JsonResponse;
@@ -30,7 +31,7 @@ class TaskController extends Controller
                 is_string($assigneeId) && $assigneeId !== '' ? $assigneeId : null,
                 $completedFilter,
             );
-        } catch (TaskServiceException $e) {
+        } catch (FamilyServiceException|TaskServiceException $e) {
             return $this->serviceError($e);
         }
 
@@ -45,7 +46,7 @@ class TaskController extends Controller
 
         try {
             $created = $tasks->create($uid, $familyId, $request->all());
-        } catch (TaskServiceException $e) {
+        } catch (FamilyServiceException|TaskServiceException $e) {
             return $this->serviceError($e);
         }
 
@@ -64,7 +65,7 @@ class TaskController extends Controller
 
         try {
             $task = $tasks->getForMember($uid, $familyId, $taskId);
-        } catch (TaskServiceException $e) {
+        } catch (FamilyServiceException|TaskServiceException $e) {
             return $this->serviceError($e);
         }
 
@@ -83,7 +84,7 @@ class TaskController extends Controller
 
         try {
             $task = $tasks->update($uid, $familyId, $taskId, $request->all());
-        } catch (TaskServiceException $e) {
+        } catch (FamilyServiceException|TaskServiceException $e) {
             return $this->serviceError($e);
         }
 
@@ -107,7 +108,7 @@ class TaskController extends Controller
 
         try {
             $task = $tasks->setCompleted($uid, $familyId, $taskId, $completed);
-        } catch (TaskServiceException $e) {
+        } catch (FamilyServiceException|TaskServiceException $e) {
             return $this->serviceError($e);
         }
 
@@ -126,7 +127,7 @@ class TaskController extends Controller
 
         try {
             $tasks->delete($uid, $familyId, $taskId);
-        } catch (TaskServiceException $e) {
+        } catch (FamilyServiceException|TaskServiceException $e) {
             return $this->serviceError($e);
         }
 
@@ -145,7 +146,7 @@ class TaskController extends Controller
 
         try {
             $tasks->deleteRecurrence($uid, $familyId, $recurrenceGroupId, $request->all());
-        } catch (TaskServiceException $e) {
+        } catch (FamilyServiceException|TaskServiceException $e) {
             return $this->serviceError($e);
         }
 
@@ -154,7 +155,7 @@ class TaskController extends Controller
         ]);
     }
 
-    private function serviceError(TaskServiceException $exception): JsonResponse
+    private function serviceError(FamilyServiceException|TaskServiceException $exception): JsonResponse
     {
         return response()->json([
             'message' => $exception->getMessage(),

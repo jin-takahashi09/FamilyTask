@@ -18,7 +18,7 @@ import {
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const root = path.resolve(__dirname, "..");
-const QA_PORT = process.env.QA_PORT ?? "3099";
+const QA_PORT = process.env.QA_PORT ?? "3098";
 const API_PORT = process.env.QA_API_PORT ?? "8099";
 const MANAGED_PORTS = [Number(QA_PORT), Number(API_PORT)];
 const emulatorHost =

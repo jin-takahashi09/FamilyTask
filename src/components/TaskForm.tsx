@@ -188,7 +188,10 @@ export function TaskForm({
         });
 
         if (!result.success) {
-          setFormError("タスクを作成できませんでした。入力内容を確認してください。");
+          setFormError(
+            result.error ??
+              "タスクを作成できませんでした。入力内容を確認してください。",
+          );
           return;
         }
 

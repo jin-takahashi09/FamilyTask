@@ -9,8 +9,15 @@ import { FAMILY_LOCAL_STORAGE_NOTICE } from "@/lib/family-utils";
 type SetupMode = "create" | "join";
 
 function FamilySetupContent() {
-  const { currentUser, hasFamily, createFamily, joinFamilyByInviteCode } =
-    useApp();
+  const {
+    currentUser,
+    hasFamily,
+    isReady,
+    sessionInitializing,
+    familiesLoading,
+    createFamily,
+    joinFamilyByInviteCode,
+  } = useApp();
   const router = useRouter();
   const [mode, setMode] = useState<SetupMode>("create");
   const [familyName, setFamilyName] = useState("");
@@ -18,11 +25,23 @@ function FamilySetupContent() {
   const [error, setError] = useState("");
   const [submitting, setSubmitting] = useState(false);
 
+  const sessionSettled =
+    isReady && !sessionInitializing && (!hasFamily || !familiesLoading);
+
   useEffect(() => {
+    if (!sessionSettled) return;
     if (hasFamily) {
       router.replace("/");
     }
-  }, [hasFamily, router]);
+  }, [hasFamily, sessionSettled, router]);
+
+  if (!sessionSettled) {
+    return (
+      <div className="flex min-h-screen items-center justify-center text-sm font-bold text-amber-700">
+        読み込み中...
+      </div>
+    );
+  }
 
   if (!currentUser) return null;
   if (hasFamily) return null;

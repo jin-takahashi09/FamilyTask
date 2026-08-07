@@ -1,6 +1,7 @@
 "use client";
 
-import { useState } from "react";
+import { Suspense, useCallback, useMemo, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import { AppHeader } from "@/components/AppHeader";
 import { AuthGuard } from "@/components/AuthGuard";
 import { Calendar } from "@/components/Calendar";
@@ -8,12 +9,38 @@ import { MemberSidebar, MyTodayTasks } from "@/components/MemberSidebar";
 import { MemberSwitcher } from "@/components/MemberSwitcher";
 import { useApp } from "@/context/AppProvider";
 
-function HomeContent() {
+function HomeContentInner() {
   const [currentMonth, setCurrentMonth] = useState(new Date());
-  const { currentUser } = useApp();
-  const [selectedUserId, setSelectedUserId] = useState<string | null>(null);
+  const { currentUser, isFamilyMember } = useApp();
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  const userParam = searchParams.get("user");
 
-  const effectiveUserId = selectedUserId ?? currentUser?.id ?? "";
+  const effectiveUserId = useMemo(() => {
+    if (!currentUser) return "";
+    if (
+      userParam &&
+      userParam !== currentUser.id &&
+      isFamilyMember(userParam)
+    ) {
+      return userParam;
+    }
+    return currentUser.id;
+  }, [userParam, currentUser, isFamilyMember]);
+
+  const handleSelectUser = useCallback(
+    (userId: string) => {
+      if (!currentUser) return;
+
+      if (userId === currentUser.id) {
+        router.replace("/", { scroll: false });
+        return;
+      }
+
+      router.replace(`/?user=${encodeURIComponent(userId)}`, { scroll: false });
+    },
+    [currentUser, router],
+  );
 
   if (!currentUser || !effectiveUserId) return null;
 
@@ -23,7 +50,7 @@ function HomeContent() {
     currentMonth,
     onMonthChange: setCurrentMonth,
     userId: effectiveUserId,
-    assigneeOnly: true as const,
+    assigneeOnly: isSelf,
     isSelf,
   };
 
@@ -37,7 +64,7 @@ function HomeContent() {
       <main className="flex flex-col gap-3 px-3 pb-2 pt-1 md:hidden">
         <MemberSwitcher
           selectedUserId={effectiveUserId}
-          onSelectUser={setSelectedUserId}
+          onSelectUser={handleSelectUser}
         />
         <Calendar {...calendarProps} compact hideUserBanner />
         {isSelf && (
@@ -55,7 +82,7 @@ function HomeContent() {
         </div>
         <MemberSidebar
           selectedUserId={effectiveUserId}
-          onSelectUser={setSelectedUserId}
+          onSelectUser={handleSelectUser}
         />
       </main>
 
@@ -63,6 +90,20 @@ function HomeContent() {
         データはこの端末のブラウザに保存されます（お試し版）
       </p>
     </div>
+  );
+}
+
+function HomeContent() {
+  return (
+    <Suspense
+      fallback={
+        <div className="flex min-h-screen items-center justify-center text-sm font-bold text-amber-700">
+          読み込み中...
+        </div>
+      }
+    >
+      <HomeContentInner />
+    </Suspense>
   );
 }
 

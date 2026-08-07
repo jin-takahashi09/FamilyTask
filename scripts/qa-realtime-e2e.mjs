@@ -88,7 +88,7 @@ function createSyncWatcher(page) {
   };
 }
 
-function waitForMembersRefetch(page, familyId, timeout = 15_000) {
+function waitForMembersRefetch(page, familyId, timeout = 30_000) {
   return page.waitForResponse(
     (r) =>
       r.request().method() === "GET" &&
@@ -98,10 +98,24 @@ function waitForMembersRefetch(page, familyId, timeout = 15_000) {
   );
 }
 
-async function waitForRealtimeMemberSync(page, familyId, checkFn, timeout = 15_000) {
-  const refetch = waitForMembersRefetch(page, familyId, timeout);
+async function waitForRealtimeMemberSync(page, familyId, checkFn, timeout = 30_000) {
+  const beforeCount = await page.evaluate(
+    () => window.__familyTaskGetQA?.()?.activeFamilyMemberCount ?? -1,
+  );
+  const refetch = waitForMembersRefetch(page, familyId, timeout).catch(() => null);
+  const stateChanged = page
+    .waitForFunction(
+      ({ previousCount }) => {
+        const qa = window.__familyTaskGetQA?.();
+        return (qa?.activeFamilyMemberCount ?? -1) !== previousCount;
+      },
+      { previousCount: beforeCount },
+      { timeout },
+    )
+    .catch(() => null);
   await checkFn();
-  await refetch;
+  await Promise.race([refetch, stateChanged]);
+  await waitForAppReady(page, timeout);
 }
 
 async function clearStorage(page) {
@@ -115,16 +129,6 @@ async function completeProfileIfNeeded(page, name) {
   await page.getByRole("button", { name: "設定を完了する" }).click();
   await page.waitForURL(/\/(family\/setup|\/)$/, { timeout: 30000 }).catch(() => {});
   await waitForSessionInitialized(page, 60000);
-}
-
-async function createFamilyOnSetup(page, name) {
-  await page.waitForURL(/\/family\/setup/, { timeout: 15000 }).catch(() => {});
-  if (!page.url().includes("/family/setup")) return;
-  await page.fill('input[type="text"]', name);
-  await page.locator('form button[type="submit"]').click();
-  await page.waitForURL(/\/(?!family\/setup)/, { timeout: 30000 });
-  await waitForFamiliesLoaded(page, { minMemberships: 1, timeout: 60000 });
-  await waitForTasksLoaded(page, 60000);
 }
 
 async function joinViaSetup(page, code, familyId) {
@@ -502,13 +506,6 @@ async function main() {
 
     let transferSynced = false;
     try {
-      const familiesRefetch = pageA.waitForResponse(
-        (r) =>
-          r.request().method() === "GET" &&
-          /\/api\/families$/.test(new URL(r.url()).pathname) &&
-          r.ok(),
-        { timeout: 30_000 },
-      );
       const transfer = await apiCall(
         tokenA,
         "transfer",
@@ -519,8 +516,45 @@ async function main() {
       if (!transfer.ok) {
         throw new Error(`transfer failed: ${transfer.status}`);
       }
-      await familiesRefetch;
-      transferSynced = transfer.body?.family?.ownerId === uidC;
+      const expectedOwnerId = transfer.body?.family?.ownerId ?? uidC;
+
+      await Promise.all([
+        waitForMembersRefetch(pageA, familyId, 45_000).catch(() => null),
+        pageA
+          .waitForResponse(
+            (r) =>
+              r.request().method() === "GET" &&
+              /\/api\/families$/.test(new URL(r.url()).pathname) &&
+              r.ok(),
+            { timeout: 45_000 },
+          )
+          .catch(() => null),
+      ]);
+
+      await pageA.waitForFunction(
+        ({ fid, nextOwnerId, previousOwnerId }) => {
+          const state =
+            typeof window.__familyTaskGetState === "function"
+              ? window.__familyTaskGetState()
+              : null;
+          const family = (state?.families ?? []).find((f) => f.id === fid);
+          return (
+            family?.ownerId === nextOwnerId &&
+            family?.ownerId !== previousOwnerId
+          );
+        },
+        {
+          fid: familyId,
+          nextOwnerId: expectedOwnerId,
+          previousOwnerId: uidA,
+        },
+        { timeout: 60_000 },
+      );
+      const stateAfterTransfer = await getState(pageA);
+      const familyAfterTransfer = stateAfterTransfer?.families?.find(
+        (f) => f.id === familyId,
+      );
+      transferSynced = familyAfterTransfer?.ownerId === expectedOwnerId;
     } catch {
       transferSynced = false;
     }

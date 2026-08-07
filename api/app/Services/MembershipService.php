@@ -6,6 +6,7 @@ use App\Data\MembershipData;
 use App\Exceptions\FamilyServiceException;
 use Google\Cloud\Firestore\DocumentSnapshot;
 use Google\Cloud\Firestore\FirestoreClient;
+use Illuminate\Support\Facades\Log;
 use Throwable;
 
 class MembershipService
@@ -24,16 +25,25 @@ class MembershipService
     public function findByUserAndFamily(string $userId, string $familyId): ?MembershipData
     {
         try {
-            $snapshot = $this->membershipReference($familyId, $userId)->snapshot();
+            return FirestoreRetry::run(function () use ($userId, $familyId): ?MembershipData {
+                $snapshot = $this->membershipReference($familyId, $userId)->snapshot();
 
-            if (! $snapshot->exists()) {
-                return null;
-            }
+                if (! $snapshot->exists()) {
+                    return null;
+                }
 
-            return $this->mapSnapshot($snapshot);
+                return $this->mapSnapshot($snapshot);
+            }, $this->firestore);
         } catch (FamilyServiceException $e) {
             throw $e;
-        } catch (Throwable) {
+        } catch (Throwable $e) {
+            Log::error('Membership lookup failed', [
+                'userId' => $userId,
+                'familyId' => $familyId,
+                'exceptionClass' => $e::class,
+                'exceptionMessage' => $e->getMessage(),
+            ]);
+
             throw new FamilyServiceException('メンバー情報を取得できませんでした');
         }
     }
@@ -44,23 +54,31 @@ class MembershipService
     public function listByUserId(string $userId): array
     {
         try {
-            $client = $this->client();
-            $memberships = [];
+            return FirestoreRetry::run(function () use ($userId): array {
+                $client = $this->client();
+                $memberships = [];
 
-            foreach (
-                $client->collection(self::COLLECTION)
-                    ->where('userId', '=', $userId)
-                    ->documents() as $document
-            ) {
-                if ($document->exists()) {
-                    $memberships[] = $this->mapSnapshot($document);
+                foreach (
+                    $client->collection(self::COLLECTION)
+                        ->where('userId', '=', $userId)
+                        ->documents() as $document
+                ) {
+                    if ($document->exists()) {
+                        $memberships[] = $this->mapSnapshot($document);
+                    }
                 }
-            }
 
-            return $memberships;
+                return $memberships;
+            }, $this->firestore);
         } catch (FamilyServiceException $e) {
             throw $e;
-        } catch (Throwable) {
+        } catch (Throwable $e) {
+            Log::error('Membership list by user failed', [
+                'userId' => $userId,
+                'exceptionClass' => $e::class,
+                'exceptionMessage' => $e->getMessage(),
+            ]);
+
             throw new FamilyServiceException('所属グループを取得できませんでした');
         }
     }
@@ -71,23 +89,31 @@ class MembershipService
     public function listByFamilyId(string $familyId): array
     {
         try {
-            $client = $this->client();
-            $memberships = [];
+            return FirestoreRetry::run(function () use ($familyId): array {
+                $client = $this->client();
+                $memberships = [];
 
-            foreach (
-                $client->collection(self::COLLECTION)
-                    ->where('familyId', '=', $familyId)
-                    ->documents() as $document
-            ) {
-                if ($document->exists()) {
-                    $memberships[] = $this->mapSnapshot($document);
+                foreach (
+                    $client->collection(self::COLLECTION)
+                        ->where('familyId', '=', $familyId)
+                        ->documents() as $document
+                ) {
+                    if ($document->exists()) {
+                        $memberships[] = $this->mapSnapshot($document);
+                    }
                 }
-            }
 
-            return $memberships;
+                return $memberships;
+            }, $this->firestore);
         } catch (FamilyServiceException $e) {
             throw $e;
-        } catch (Throwable) {
+        } catch (Throwable $e) {
+            Log::error('Membership list by family failed', [
+                'familyId' => $familyId,
+                'exceptionClass' => $e::class,
+                'exceptionMessage' => $e->getMessage(),
+            ]);
+
             throw new FamilyServiceException('メンバー一覧を取得できませんでした');
         }
     }

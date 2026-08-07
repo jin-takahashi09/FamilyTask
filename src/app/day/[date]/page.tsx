@@ -58,7 +58,10 @@ function DayPageContent({ dateKey }: { dateKey: string }) {
     return null;
   }
 
-  const backHref = mineOnly || isOwnCalendar ? "/" : userId ? `/member/${userId}` : "/";
+  const backHref =
+    !userId || isOwnCalendar
+      ? "/"
+      : `/?user=${encodeURIComponent(userId)}`;
 
   return (
     <>

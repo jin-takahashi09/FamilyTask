@@ -2,51 +2,31 @@
  * Shared Playwright auth helpers for QA scripts (Auth Emulator only).
  */
 import {
-  waitForFamiliesLoaded,
   waitForSessionInitialized,
+  waitForSessionSettled,
 } from "./qa-family-waits.mjs";
 
 import { getEmulatorIdToken, waitForHttpOk } from "./qa-harness-utils.mjs";
 
 const QA_PASSWORD = process.env.QA_FIREBASE_PASSWORD ?? "qa-password-123456";
+const AUTH_NAV_TIMEOUT = 20_000;
 
 export function createAuthHelpers(baseUrl) {
   const BASE = baseUrl;
 
   async function waitForLoginSettled(page, timeout = 120000) {
+    await page.waitForFunction(
+      () => !window.location.pathname.includes("/login"),
+      { timeout },
+    );
     await waitForSessionInitialized(page, timeout);
 
-    const familiesReady = await page
-      .waitForFunction(
-        () => {
-          const qa =
-            typeof window.__familyTaskGetQA === "function"
-              ? window.__familyTaskGetQA()
-              : null;
-          return qa?.familiesLoading === false;
-        },
-        { timeout: Math.min(timeout, 90000) },
-      )
-      .catch(() => null);
+    const path = page.url();
+    if (path.includes("/profile/setup") || path.includes("/family/setup")) {
+      return;
+    }
 
-    if (familiesReady !== null) return;
-
-    if (page.isClosed()) return;
-
-    const familiesResponse = page
-      .waitForResponse(
-        (r) =>
-          r.request().method() === "GET" &&
-          r.url().includes("/api/families") &&
-          r.ok(),
-        { timeout },
-      )
-      .catch(() => null);
-
-    await page.reload({ waitUntil: "domcontentloaded" });
-    await waitForSessionInitialized(page, timeout);
-    await familiesResponse;
-    await waitForFamiliesLoaded(page, { timeout });
+    await waitForSessionSettled(page, timeout);
   }
 
   async function readFormError(page) {
@@ -63,7 +43,13 @@ export function createAuthHelpers(baseUrl) {
           typeof window.__familyTaskGetQA === "function"
             ? window.__familyTaskGetQA()
             : null;
-        if (!qa?.authInitialized || !qa?.isReady) return false;
+        if (
+          !qa?.authInitialized ||
+          !qa?.isReady ||
+          qa?.sessionInitializing
+        ) {
+          return false;
+        }
         return Boolean(document.querySelector('input[type="email"]'));
       },
       { timeout },
@@ -104,20 +90,36 @@ export function createAuthHelpers(baseUrl) {
       throw new Error("Page is closed before login");
     }
 
-    if (page.url().includes("/login")) {
+    await page.goto(`${BASE}/login`, { waitUntil: "domcontentloaded" });
+
+    const emailInput = page.locator('input[type="email"]');
+    if (await emailInput.isVisible().catch(() => false)) {
       await waitForLoginForm(page);
       return;
     }
 
-    await page.goto(`${BASE}/login`, { waitUntil: "domcontentloaded" });
-    if (page.url().includes("/login")) {
+    const partialLogout = page.getByRole("button", {
+      name: "ログアウトして別のアカウントでログイン",
+    });
+    if (await partialLogout.isVisible().catch(() => false)) {
+      await partialLogout.click();
+      await page.waitForURL(/\/login/, { timeout: 60000 });
       await waitForLoginForm(page);
       return;
     }
 
-    await logout(page);
-    await page.goto(`${BASE}/login`, { waitUntil: "domcontentloaded" });
+    if (!page.url().includes("/login")) {
+      await logout(page);
+      await page.goto(`${BASE}/login`, { waitUntil: "domcontentloaded" });
+    }
+
     await waitForLoginForm(page);
+  }
+
+  async function clearSession(page, storageKey = "family-task-app") {
+    await page.goto(`${BASE}/login`, { waitUntil: "domcontentloaded" });
+    await page.evaluate((key) => localStorage.removeItem(key), storageKey);
+    await ensureOnLoginPage(page);
   }
 
   async function submitLogin(page, email) {
@@ -145,11 +147,11 @@ export function createAuthHelpers(baseUrl) {
 
     await Promise.race([
       page.waitForFunction(() => !window.location.pathname.includes("/login"), {
-        timeout: 120000,
+        timeout: AUTH_NAV_TIMEOUT,
       }),
       page
         .locator("form p.text-rose-500")
-        .waitFor({ state: "visible", timeout: 120000 }),
+        .waitFor({ state: "visible", timeout: AUTH_NAV_TIMEOUT }),
     ]).catch(() => {});
 
     if (!page.url().includes("/login")) {
@@ -192,12 +194,12 @@ export function createAuthHelpers(baseUrl) {
     await registerButton.click();
 
     await Promise.race([
-      page.waitForFunction(() => !window.location.pathname.includes("/login"), {
+      page.waitForURL(/\/(profile\/setup|family\/setup|\/?)$/, {
         timeout: 120000,
       }),
       page
         .locator("form p.text-rose-500")
-        .waitFor({ state: "visible", timeout: 120000 }),
+        .waitFor({ state: "visible", timeout: AUTH_NAV_TIMEOUT }),
     ]).catch(() => {});
 
     if (!page.url().includes("/login")) {
@@ -250,40 +252,43 @@ export function createAuthHelpers(baseUrl) {
     }
   }
 
-  async function registerOrLogin(page, email) {
+  async function registerOrLogin(page, email, options = {}) {
+    const { registerFirst = false } = options;
     const maxAttempts = 5;
 
     for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
-      await submitLogin(page, email);
-      if (!page.url().includes("/login")) return;
+      if (!registerFirst) {
+        await submitLogin(page, email);
+        if (!page.url().includes("/login")) return;
 
-      let error = await readFormError(page);
+        let error = await readFormError(page);
 
-      if (error.includes("Firebase設定が未完了")) {
-        throw new Error(
-          "Firebase is not configured. Copy .env.local.example to .env.local and set Firebase keys.",
-        );
-      }
+        if (error.includes("Firebase設定が未完了")) {
+          throw new Error(
+            "Firebase is not configured. Copy .env.local.example to .env.local and set Firebase keys.",
+          );
+        }
 
-      if (error.includes("メール/パスワード認証が有効になっていません")) {
-        throw new Error(
-          "Email/Password sign-in is disabled in Firebase Console.",
-        );
-      }
+        if (error.includes("メール/パスワード認証が有効になっていません")) {
+          throw new Error(
+            "Email/Password sign-in is disabled in Firebase Console.",
+          );
+        }
 
-      if (error.includes("サーバーとの認証に失敗") && attempt < maxAttempts) {
-        await waitForAuthBackend(page);
-        continue;
-      }
+        if (error.includes("サーバーとの認証に失敗") && attempt < maxAttempts) {
+          await waitForAuthBackend(page);
+          continue;
+        }
 
-      if (error.includes("サーバーとの認証に失敗")) {
-        throw new Error(`Laravel auth failed for ${email}: ${error}`);
+        if (error.includes("サーバーとの認証に失敗")) {
+          throw new Error(`Laravel auth failed for ${email}: ${error}`);
+        }
       }
 
       await submitRegister(page, email);
       if (!page.url().includes("/login")) return;
 
-      error = await readFormError(page);
+      let error = await readFormError(page);
 
       if (error.includes("このメールアドレスは使用されています")) {
         await submitLogin(page, email);
@@ -301,8 +306,15 @@ export function createAuthHelpers(baseUrl) {
         continue;
       }
 
+      const pageHint = await page
+        .evaluate(() => ({
+          url: window.location.href,
+          text: document.body.innerText.slice(0, 300),
+        }))
+        .catch(() => ({ url: page.url(), text: "" }));
+
       throw new Error(
-        `Login/register failed for ${email}${error ? `: ${error}` : ""}`,
+        `Login/register failed for ${email}${error ? `: ${error}` : ""} @ ${pageHint.url} ${pageHint.text}`,
       );
     }
   }
@@ -328,18 +340,18 @@ export function createAuthHelpers(baseUrl) {
   async function login(page, email, options = {}) {
     const { allowRegister = false } = options;
     if (allowRegister) {
-      await registerOrLogin(page, email);
+      await registerOrLogin(page, email, { registerFirst: true });
       return;
     }
     await loginOnly(page, email);
   }
-
   return {
     logout,
     login,
     loginOnly,
     registerOrLogin,
     ensureOnLoginPage,
+    clearSession,
     submitLogin,
   };
 }

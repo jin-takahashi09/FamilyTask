@@ -32,22 +32,31 @@ export function resolveLocalProfileImage(
   return null;
 }
 
+export type ProfileFetchStatus = "loaded" | "missing" | "unavailable";
+
 export function mergeFirestoreProfile(
   verified: { uid: string; email: string | null },
   firestoreProfile: FirestoreProfile | null,
   existingUsers: UserProfile[],
+  fetchStatus: ProfileFetchStatus = firestoreProfile ? "loaded" : "missing",
 ): UserProfile {
   const localImage = resolveLocalProfileImage(verified.uid, existingUsers);
 
   if (!firestoreProfile) {
     const existing = existingUsers.find((user) => user.id === verified.uid);
+    const hasLocalProfile = Boolean(
+      existing?.profileCompleted && existing.displayName.trim(),
+    );
 
     return {
       id: verified.uid,
       email: verified.email ?? existing?.email ?? "",
       displayName: existing?.displayName ?? "",
       profileImage: localImage,
-      profileCompleted: false,
+      profileCompleted:
+        fetchStatus === "unavailable" && hasLocalProfile
+          ? true
+          : false,
     };
   }
 

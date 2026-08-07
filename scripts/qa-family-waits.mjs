@@ -87,7 +87,7 @@ export async function waitForTaskCreate(
   await waitForTaskTitle(page, title, timeout);
 }
 
-export async function waitForAppReady(page, timeout = 60000) {
+export async function waitForSessionSettled(page, timeout = 60000) {
   await page.waitForFunction(
     () => {
       const qa =
@@ -95,10 +95,22 @@ export async function waitForAppReady(page, timeout = 60000) {
           ? window.__familyTaskGetQA()
           : null;
       if (!qa) return false;
-      return qa.isReady === true && qa.familiesLoading === false;
+      const onSetup =
+        window.location.pathname.includes("/profile/setup") ||
+        window.location.pathname.includes("/family/setup");
+      return (
+        qa.authInitialized === true &&
+        qa.isReady === true &&
+        qa.sessionInitializing === false &&
+        (onSetup || qa.familiesLoading === false)
+      );
     },
     { timeout },
   );
+}
+
+export async function waitForAppReady(page, timeout = 60000) {
+  await waitForSessionSettled(page, timeout);
 }
 
 export async function waitForSessionInitialized(page, timeout = 60000) {
@@ -108,7 +120,11 @@ export async function waitForSessionInitialized(page, timeout = 60000) {
         typeof window.__familyTaskGetQA === "function"
           ? window.__familyTaskGetQA()
           : null;
-      return qa?.authInitialized === true && qa?.isReady === true;
+      return (
+        qa?.authInitialized === true &&
+        qa?.isReady === true &&
+        qa?.sessionInitializing === false
+      );
     },
     { timeout },
   );
@@ -234,6 +250,121 @@ export async function waitForFamilyInState(page, familyId, timeout = 60000) {
     { timeout },
   );
   await waitForAppReady(page, timeout);
+}
+
+export async function waitForFamilyNameInState(page, familyName, timeout = 60000) {
+  await page.waitForFunction(
+    (name) => {
+      const state =
+        typeof window.__familyTaskGetState === "function"
+          ? window.__familyTaskGetState()
+          : null;
+      return (state?.families ?? []).some((f) => f.name === name);
+    },
+    familyName,
+    { timeout },
+  );
+  await waitForAppReady(page, timeout);
+}
+
+export async function waitForFamilyPageOperable(page, timeout = 60000) {
+  await waitForFamilyPageReady(page, timeout);
+
+  await page.waitForFunction(
+    () => {
+      const heading = [...document.querySelectorAll("h2")].find((h) =>
+        h.textContent?.includes("グループ切り替え"),
+      );
+      return Boolean(heading);
+    },
+    { timeout },
+  );
+}
+
+export async function waitForFamilyPageReady(page, timeout = 60000) {
+  await waitForSessionSettled(page, timeout);
+
+  await page.waitForFunction(
+    () => {
+      const path = window.location.pathname;
+      if (
+        !path.includes("/family") ||
+        path.includes("/family/setup") ||
+        path.includes("/login")
+      ) {
+        return false;
+      }
+
+      const bodyText = document.body.textContent ?? "";
+      if (
+        bodyText.includes("読み込み中") ||
+        bodyText.includes("グループ情報を読み込み中")
+      ) {
+        return false;
+      }
+
+      return (
+        bodyText.includes("家族管理") ||
+        bodyText.includes("家族グループが見つかりません")
+      );
+    },
+    { timeout },
+  );
+}
+
+export async function waitForFamilySwitcherButton(
+  page,
+  familyName,
+  timeout = 60000,
+) {
+  await waitForFamilyPageOperable(page, timeout);
+  await page.waitForFunction(
+    (name) => {
+      const heading = [...document.querySelectorAll("h2")].find((h) =>
+        h.textContent?.includes("グループ切り替え"),
+      );
+      const section = heading?.closest("section");
+      if (!section) return false;
+      return [...section.querySelectorAll("button")].some(
+        (button) => button.textContent?.trim() === name,
+      );
+    },
+    familyName,
+    { timeout },
+  );
+}
+
+export async function isActiveFamilyName(page, familyName) {
+  return page.evaluate((name) => {
+    const state =
+      typeof window.__familyTaskGetState === "function"
+        ? window.__familyTaskGetState()
+        : null;
+    if (!state) return false;
+    const family = (state.families ?? []).find((f) => f.name === name);
+    if (!family) return false;
+    return state.session?.activeFamilyId === family.id;
+  }, familyName);
+}
+
+export async function getMemberRolesFromFamilyPage(page) {
+  return page.evaluate(() => {
+    const heading = [...document.querySelectorAll("h2")].find((h) =>
+      h.textContent?.includes("メンバー一覧"),
+    );
+    const list = heading?.parentElement?.querySelector("ul");
+    if (!list) return {};
+
+    const out = {};
+    for (const li of [...list.querySelectorAll("li")]) {
+      const nameEl = li.querySelector("p.text-sm.font-extrabold");
+      const roleEl = li.querySelector("p.text-xs.text-slate-500");
+      if (!nameEl || !roleEl) continue;
+      const name = nameEl.textContent?.replace("自分", "").trim() ?? "";
+      out[name] = roleEl.textContent?.trim() ?? "";
+    }
+    return out;
+  });
 }
 
 export async function waitForMembershipRemoved(

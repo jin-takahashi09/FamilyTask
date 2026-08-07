@@ -37,6 +37,9 @@ class FamilySyncBroadcaster
             if (request()->header('X-Socket-Id')) {
                 $pending->toOthers();
             }
+
+            // PendingBroadcast sends in __destruct(); unset here so failures stay in try.
+            unset($pending);
         } catch (Throwable $e) {
             Log::warning('Family sync broadcast failed', [
                 'familyId' => $familyId,

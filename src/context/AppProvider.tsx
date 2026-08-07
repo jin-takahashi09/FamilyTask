@@ -16,7 +16,6 @@ import {
   getFamilyMembers,
   getFamilyTasks,
   getMembershipInFamily,
-  getOtherFamilyMembers,
   getUserFamilies,
   getUserMemberships,
   isUserInFamily,
@@ -28,6 +27,7 @@ import type {
   AddTaskResult,
   AppState,
   FamilyGroup,
+  FamilyMemberWithRole,
   FamilyMembership,
   Task,
   TaskSortOrder,
@@ -49,6 +49,7 @@ import {
   applySavedProfile,
   mergeFirestoreProfile,
   profileFormToApiPayload,
+  type ProfileFetchStatus,
 } from "@/lib/profile-utils";
 import {
   getFirebaseAuthErrorMessage,
@@ -67,7 +68,6 @@ import {
   createFamily as apiCreateFamily,
   deleteFamily as apiDeleteFamily,
   FamilyActionError,
-  FamilyFetchError,
   fetchFamilyMembers,
   fetchMyFamilies,
   joinFamilyByInviteCode as apiJoinFamily,
@@ -84,6 +84,7 @@ import {
   fetchFamilyTasks,
   mapCreateTaskInput,
   mapUpdateTaskInput,
+  TaskActionError,
   toggleFamilyTaskCompleted,
   updateFamilyTask,
 } from "@/lib/api/tasks";
@@ -123,7 +124,8 @@ type AppContextValue = {
   currentUser: UserProfile | null;
   currentFamily: FamilyGroup | null;
   currentMembership: FamilyMembership | null;
-  familyMembers: UserProfile[];
+  familyMembers: FamilyMemberWithRole[];
+  sessionInitializing: boolean;
   isAuthenticated: boolean;
   hasFamily: boolean;
   isReady: boolean;
@@ -269,8 +271,16 @@ function buildSessionFromVerified(
   prev: AppState,
   verified: AuthMeResponse,
   firestoreProfile: FirestoreProfile | null,
+  profileFetchStatus: ProfileFetchStatus = firestoreProfile
+    ? "loaded"
+    : "missing",
 ): { state: AppState; result: LoginResult } {
-  const user = mergeFirestoreProfile(verified, firestoreProfile, prev.users);
+  const user = mergeFirestoreProfile(
+    verified,
+    firestoreProfile,
+    prev.users,
+    profileFetchStatus,
+  );
   const nextUsers = [...prev.users];
   const existingIndex = nextUsers.findIndex((entry) => entry.id === user.id);
 
@@ -315,12 +325,15 @@ export function AppProvider({ children }: { children: ReactNode }) {
   );
   const clientReady = useIsClientReady();
   const [authInitialized, setAuthInitialized] = useState(false);
+  const [sessionInitializing, setSessionInitializing] = useState(false);
+  const [firebaseUid, setFirebaseUid] = useState<string | null>(null);
   const [profileLoadError, setProfileLoadError] = useState<string | null>(null);
   const [familiesLoading, setFamiliesLoading] = useState(false);
   const [tasksLoading, setTasksLoading] = useState(false);
   const [activeFamilyMembers, setActiveFamilyMembers] = useState<ApiFamilyMember[]>(
     [],
   );
+  const [membersFamilyId, setMembersFamilyId] = useState<string | null>(null);
   const sessionUserIdRef = useRef<string | null>(null);
   const activeFamilyIdRef = useRef<string | null>(null);
   const familiesSyncedUidRef = useRef<string | null>(null);
@@ -340,7 +353,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   }, []);
   const firebaseConfigured = isFirebaseConfigured();
   const isReady =
-    clientReady && (authInitialized || !firebaseConfigured);
+    clientReady && (!firebaseConfigured || (!sessionInitializing && authInitialized));
 
   const updateState = useCallback(
     (updater: AppState | ((prev: AppState) => AppState)) => {
@@ -373,10 +386,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
       tasksLoading,
       isReady,
       authInitialized,
+      sessionInitializing,
       activeFamilyMemberCount: activeFamilyMembers.length,
       realtimeConnectionState: getRealtimeConnectionState(),
     });
-  }, [clientReady, familiesLoading, tasksLoading, isReady, authInitialized, activeFamilyMembers.length]);
+  }, [clientReady, familiesLoading, tasksLoading, isReady, authInitialized, sessionInitializing, activeFamilyMembers.length]);
 
   useEffect(() => {
     if (!isReady) return;
@@ -401,10 +415,13 @@ export function AppProvider({ children }: { children: ReactNode }) {
       }
 
       const promise = (async () => {
+        setActiveFamilyMembers([]);
+        setMembersFamilyId(null);
         try {
           const members = await fetchFamilyMembers(familyId);
           updateState((prev) => mergeMemberProfiles(prev, members));
           setActiveFamilyMembers(members);
+          setMembersFamilyId(familyId);
         } catch {
           // member list refresh failure is non-fatal
         }
@@ -432,6 +449,12 @@ export function AppProvider({ children }: { children: ReactNode }) {
       const promise = (async () => {
         const generation = ++tasksFetchGenerationRef.current;
         setTasksLoading(true);
+        updateState((prev) => {
+          if (prev.session?.activeFamilyId !== familyId) {
+            return prev;
+          }
+          return { ...prev, tasks: [] };
+        });
         try {
           const tasks = await fetchFamilyTasks(familyId);
           updateState((prev) => {
@@ -571,6 +594,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       const syncPromise = (async (): Promise<LoginResult> => {
         if (!firebaseUser) {
           setFamiliesLoading(false);
+          setSessionInitializing(false);
           familiesSyncedUidRef.current = null;
           updateState((prev) => {
             const userId = prev.session?.userId;
@@ -591,19 +615,28 @@ export function AppProvider({ children }: { children: ReactNode }) {
           return { success: false };
         }
 
+        setSessionInitializing(true);
+
         try {
           const verified = await fetchAuthMe();
           let firestoreProfile: FirestoreProfile | null = null;
           let nextProfileLoadError: string | null = null;
+          let profileFetchStatus: ProfileFetchStatus = "missing";
 
           try {
             firestoreProfile = await fetchMyProfile();
+            profileFetchStatus = "loaded";
           } catch (error) {
             if (error instanceof ProfileNotFoundError) {
               firestoreProfile = null;
+              profileFetchStatus = "missing";
             } else if (error instanceof ProfileFetchError) {
+              firestoreProfile = null;
+              profileFetchStatus = "unavailable";
               nextProfileLoadError = error.message;
             } else {
+              firestoreProfile = null;
+              profileFetchStatus = "unavailable";
               nextProfileLoadError = "プロフィールを取得できませんでした";
             }
           }
@@ -614,8 +647,22 @@ export function AppProvider({ children }: { children: ReactNode }) {
               prev,
               verified,
               firestoreProfile,
+              profileFetchStatus,
             );
             result = built.result;
+
+            if (profileFetchStatus === "unavailable") {
+              const cachedUser = built.state.users.find(
+                (entry) => entry.id === verified.uid,
+              );
+              if (
+                cachedUser?.profileCompleted &&
+                cachedUser.displayName.trim()
+              ) {
+                nextProfileLoadError = null;
+              }
+            }
+
             sessionUserIdRef.current = verified.uid;
             return built.state;
           });
@@ -643,14 +690,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
               return prev;
             });
             familiesSyncedUidRef.current = verified.uid;
-          } catch (error) {
-            if (error instanceof FamilyFetchError) {
-              setProfileLoadError((current) => current ?? error.message);
-            } else if (error instanceof ApiError && error.status !== 401) {
-              setProfileLoadError(
-                (current) => current ?? "所属グループを取得できませんでした",
-              );
-            }
+          } catch {
+            // Families fetch failure is non-fatal; keep cached memberships when available.
           } finally {
             setFamiliesLoading(false);
           }
@@ -658,6 +699,48 @@ export function AppProvider({ children }: { children: ReactNode }) {
           setProfileLoadError(nextProfileLoadError);
           return result;
         } catch (error) {
+          if (
+            firebaseUser &&
+            error instanceof ApiError &&
+            (error.status === 0 || error.status >= 500)
+          ) {
+            let result: LoginResult = { success: false };
+            updateState((prev) => {
+              const cachedUser = prev.users.find(
+                (entry) => entry.id === firebaseUser.uid,
+              );
+              const hasCachedSession = prev.session?.userId === firebaseUser.uid;
+
+              if (hasCachedSession && cachedUser) {
+                sessionUserIdRef.current = firebaseUser.uid;
+                familiesSyncedUidRef.current = firebaseUser.uid;
+                result = {
+                  success: true,
+                  profileCompleted: Boolean(cachedUser.profileCompleted),
+                  hasFamily: getUserMemberships(prev.memberships, firebaseUser.uid)
+                    .length > 0,
+                };
+                return prev;
+              }
+
+              sessionUserIdRef.current = firebaseUser.uid;
+              const built = buildSessionFromVerified(
+                prev,
+                {
+                  uid: firebaseUser.uid,
+                  email: firebaseUser.email,
+                  emailVerified: firebaseUser.emailVerified,
+                },
+                null,
+                "unavailable",
+              );
+              result = built.result;
+              return built.state;
+            });
+            setProfileLoadError(null);
+            return result;
+          }
+
           sessionUserIdRef.current = null;
           setProfileLoadError(null);
           await signOut(getFirebaseAuth());
@@ -672,6 +755,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
             success: false,
             error: "サーバーとの認証に失敗しました",
           };
+        } finally {
+          setSessionInitializing(false);
         }
       })();
 
@@ -689,18 +774,33 @@ export function AppProvider({ children }: { children: ReactNode }) {
   );
 
   useEffect(() => {
-    if (!clientReady || !firebaseConfigured) return;
+    if (!clientReady || !firebaseConfigured) {
+      return;
+    }
+
+    let cancelled = false;
 
     const unsubscribe = onAuthStateChanged(getFirebaseAuth(), async (user) => {
-      if (user && familiesSyncedUidRef.current === user.uid) {
-        setAuthInitialized(true);
-        return;
+      setFirebaseUid(user?.uid ?? null);
+      try {
+        if (user && familiesSyncedUidRef.current === user.uid) {
+          setSessionInitializing(false);
+          setAuthInitialized(true);
+          return;
+        }
+        await syncSessionWithFirebase(user);
+      } finally {
+        if (!cancelled) {
+          setAuthInitialized(true);
+          setSessionInitializing(false);
+        }
       }
-      await syncSessionWithFirebase(user);
-      setAuthInitialized(true);
     });
 
-    return unsubscribe;
+    return () => {
+      cancelled = true;
+      unsubscribe();
+    };
   }, [clientReady, firebaseConfigured, syncSessionWithFirebase]);
 
   useEffect(() => {
@@ -719,8 +819,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       !isReady ||
       !isReverbConfigured() ||
       !state.session?.userId ||
-      !activeFamilyId ||
-      familiesLoading
+      !activeFamilyId
     ) {
       return;
     }
@@ -731,7 +830,6 @@ export function AppProvider({ children }: { children: ReactNode }) {
   }, [
     activeFamilyId,
     clientReady,
-    familiesLoading,
     handleFamilySyncEvent,
     isReady,
     state.session?.userId,
@@ -744,15 +842,13 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     if (!activeFamilyId || !isReady || familiesLoading) return;
-    setActiveFamilyMembers([]);
     void refreshFamilyMembers(activeFamilyId);
   }, [activeFamilyId, isReady, familiesLoading, refreshFamilyMembers]);
 
   useEffect(() => {
     if (!activeFamilyId || !isReady || familiesLoading) return;
-    updateState((prev) => ({ ...prev, tasks: [] }));
     void refreshTasks(activeFamilyId);
-  }, [activeFamilyId, isReady, familiesLoading, refreshTasks, updateState]);
+  }, [activeFamilyId, isReady, familiesLoading, refreshTasks]);
 
   const userFamilies = useMemo(() => {
     if (!currentUser) return [];
@@ -777,38 +873,51 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   const currentFamilyId = currentFamily?.id ?? null;
 
-  const familyMembers = useMemo(() => {
+  const familyMembers = useMemo((): FamilyMemberWithRole[] => {
     if (!currentFamilyId) return [];
 
-    const profiles = activeFamilyMembers
-      .map(apiMemberToUserProfile)
-      .filter((user) => user.profileCompleted);
-    const memberMemberships: FamilyMembership[] = activeFamilyMembers.map(
-      (member) => ({
-        id: `${currentFamilyId}_${member.userId}`,
-        familyId: currentFamilyId,
-        userId: member.userId,
-        role: member.role,
-        joinedAt: member.joinedAt,
-      }),
-    );
+    if (activeFamilyMembers.length > 0 && membersFamilyId === currentFamilyId) {
+      const membersWithRole = activeFamilyMembers
+        .map((member) => ({
+          ...apiMemberToUserProfile(member),
+          role: member.role,
+        }))
+        .filter((user) => user.profileCompleted);
+      const memberMemberships: FamilyMembership[] = activeFamilyMembers.map(
+        (member) => ({
+          id: `${currentFamilyId}_${member.userId}`,
+          familyId: currentFamilyId,
+          userId: member.userId,
+          role: member.role,
+          joinedAt: member.joinedAt,
+        }),
+      );
 
-    if (profiles.length > 0) {
       return sortMembersForDisplay(
-        profiles,
+        membersWithRole,
         memberMemberships,
         currentFamilyId,
-      );
+      ) as FamilyMemberWithRole[];
     }
+
+    const ownerId = currentFamily?.ownerId ?? null;
 
     return sortMembersForDisplay(
       getFamilyMembers(state.users, state.memberships, currentFamilyId),
       state.memberships,
       currentFamilyId,
-    );
+    ).map((member) => ({
+      ...member,
+      role:
+        member.id === ownerId
+          ? ("owner" as const)
+          : ("member" as const),
+    }));
   }, [
     activeFamilyMembers,
+    currentFamily?.ownerId,
     currentFamilyId,
+    membersFamilyId,
     state.memberships,
     state.users,
   ]);
@@ -969,30 +1078,29 @@ export function AppProvider({ children }: { children: ReactNode }) {
     [updateState],
   );
 
-  const switchFamily = useCallback((familyId: string): FamilyActionResult => {
-    let result: FamilyActionResult = { success: false, error: "不明なエラー" };
-
-    updateState((prev) => {
-      const userId = prev.session?.userId;
+  const switchFamily = useCallback(
+    (familyId: string): FamilyActionResult => {
+      const userId = state.session?.userId;
       if (!userId) {
-        result = { success: false, error: "ログインが必要です" };
-        return prev;
+        return { success: false, error: "ログインが必要です" };
       }
-      if (!isUserInFamily(prev.memberships, userId, familyId)) {
-        result = { success: false, error: "このグループに所属していません" };
-        return prev;
+      if (!isUserInFamily(state.memberships, userId, familyId)) {
+        return { success: false, error: "このグループに所属していません" };
       }
-      result = { success: true };
-      return updateSessionFamily(prev, userId, familyId);
-    });
 
-    if (result.success) {
+      updateState((prev) => updateSessionFamily(prev, userId, familyId));
       void refreshFamilyMembers(familyId);
       void refreshTasks(familyId, { force: true });
-    }
-
-    return result;
-  }, [refreshFamilyMembers, refreshTasks, updateState]);
+      return { success: true };
+    },
+    [
+      refreshFamilyMembers,
+      refreshTasks,
+      state.memberships,
+      state.session?.userId,
+      updateState,
+    ],
+  );
 
   const createFamily = useCallback(
     async (name: string): Promise<FamilyActionResult> => {
@@ -1276,6 +1384,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
           }),
         }));
         await refreshFamilyMembers(familyId, { force: true });
+        await refreshFamilies();
         return { success: true };
       } catch (error) {
         if (error instanceof FamilyActionError) {
@@ -1286,6 +1395,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     },
     [
       activeFamilyMembers,
+      refreshFamilies,
       refreshFamilyMembers,
       state.memberships,
       state.session?.activeFamilyId,
@@ -1420,14 +1530,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
   );
 
   const getOtherFamilyMembersFn = useCallback(() => {
-    if (!currentUser || !currentFamilyId) return [];
-    return getOtherFamilyMembers(
-      state.users,
-      state.memberships,
-      currentFamilyId,
-      currentUser.id,
-    );
-  }, [state.users, state.memberships, currentFamilyId, currentUser]);
+    if (!currentUser) return [];
+    return familyMembers.filter((member) => member.id !== currentUser.id);
+  }, [familyMembers, currentUser]);
 
   const addTask = useCallback(
     async (
@@ -1436,7 +1541,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
       if (!currentFamilyId || !currentUser) return { success: false };
 
       if (!canCurrentUserCreateTask(task, currentUser.id)) {
-        return { success: false };
+        return {
+          success: false,
+          error: "このタスクを作成する権限がありません",
+        };
       }
 
       try {
@@ -1466,8 +1574,14 @@ export function AppProvider({ children }: { children: ReactNode }) {
           createdCount: created.length,
           recurrenceGroupId,
         };
-      } catch {
-        return { success: false };
+      } catch (error) {
+        if (error instanceof TaskActionError) {
+          return { success: false, error: error.message };
+        }
+        return {
+          success: false,
+          error: "タスクを作成できませんでした",
+        };
       }
     },
     [currentFamilyId, currentUser, invalidateTasksFetch, updateState],
@@ -1710,9 +1824,13 @@ export function AppProvider({ children }: { children: ReactNode }) {
       currentFamily,
       currentMembership,
       familyMembers,
-      isAuthenticated: Boolean(state.session && currentUser),
+      isAuthenticated:
+        authInitialized &&
+        Boolean(state.session && currentUser) &&
+        (!firebaseConfigured || firebaseUid === state.session?.userId),
       hasFamily,
       isReady,
+      sessionInitializing,
       familiesLoading,
       tasksLoading,
       profileLoadError,
@@ -1753,7 +1871,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
       currentMembership,
       familyMembers,
       hasFamily,
+      authInitialized,
+      firebaseUid,
+      firebaseConfigured,
       isReady,
+      sessionInitializing,
       familiesLoading,
       tasksLoading,
       profileLoadError,

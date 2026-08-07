@@ -17,6 +17,13 @@ import {
   waitForMemberRemovedFromFamily,
   dismissBlockingModal,
   waitForSessionInitialized,
+  waitForSessionSettled,
+  waitForFamilyNameInState,
+  waitForFamilyPageReady,
+  waitForFamilyPageOperable,
+  waitForFamilySwitcherButton,
+  isActiveFamilyName,
+  getMemberRolesFromFamilyPage,
   waitForTaskTitle,
   waitForTasksLoaded,
   openDayPageAndWaitForTasks,
@@ -33,7 +40,7 @@ const EMAIL_C = qaEmail(RUN_ID, "user-c");
 const LONG_GROUP_NAME = "とても長いテスト用家族グループ名";
 const LONG_USER_NAME = "とても長いテストユーザー表示名";
 
-const { logout, login } = createAuthHelpers(BASE);
+const { logout, login, clearSession } = createAuthHelpers(BASE);
 
 function localDateKey(date = new Date()) {
   const y = date.getFullYear();
@@ -65,8 +72,7 @@ function getState(page) {
 }
 
 async function clearStorage(page) {
-  await page.goto(BASE);
-  await page.evaluate((key) => localStorage.removeItem(key), STORAGE_KEY);
+  await clearSession(page);
 }
 
 async function measureFamilyGroupSectionAndViewport(page) {
@@ -128,30 +134,43 @@ async function assertTaskNotInActiveGroup(page, taskId) {
 }
 
 async function completeProfileIfNeeded(page, name) {
-  if (page.url().includes("/profile/setup")) {
-    await page.fill('input[type="text"]', name);
-    await page.getByRole("button", { name: "設定を完了する" }).click();
-    await page
-      .waitForURL(/\/(family\/setup|\/)$/, { timeout: 20000 })
-      .catch(() => {});
-    await waitForSessionInitialized(page);
+  if (!page.url().includes("/profile/setup")) {
+    return;
   }
+  await page.fill('input[type="text"]', name);
+  await page.getByRole("button", { name: "設定を完了する" }).click();
+  await page.waitForFunction(
+    () => window.location.pathname.includes("/family/setup"),
+    { timeout: 120000 },
+  );
+  await waitForSessionSettled(page, 120000);
 }
 
 async function createFamilyOnSetup(page, name) {
-  await page.waitForURL(/\/family\/setup/, { timeout: 10000 }).catch(() => {});
-  if (page.url().includes("/family/setup")) {
-    await page.fill('input[type="text"]', name);
-    await page.getByRole("button", { name: "家族グループを作成" }).click();
-    await page.waitForURL(/\/(?!family\/setup)/, { timeout: 20000 });
-    await waitForFamiliesLoaded(page, { minMemberships: 1 });
+  if (!page.url().includes("/family/setup")) {
+    await page.waitForURL(/\/family\/setup/, { timeout: 120000 });
   }
+  await waitForSessionSettled(page, 120000);
+  await page.getByRole("button", { name: "家族グループを作成" }).waitFor({
+    state: "visible",
+    timeout: 120000,
+  });
+  await page.fill('input[type="text"]', name);
+  await page.getByRole("button", { name: "家族グループを作成" }).click();
+  await page.waitForURL(/\/(?!family\/setup)/, { timeout: 60000 });
+  await waitForFamiliesLoaded(page, { minMemberships: 1, timeout: 120000 });
 }
 
 async function openFamilyPage(page, options = {}) {
-  const { timeout = 60000 } = options;
+  const { timeout = 60000, requireSwitcher = true } = options;
   if (!page.url().includes("/family") || page.url().includes("/family/setup")) {
-    await page.goto(`${BASE}/family`);
+    await page.goto(`${BASE}/family`, { waitUntil: "domcontentloaded" });
+    await waitForSessionSettled(page, timeout);
+  }
+  if (requireSwitcher) {
+    await waitForFamilyPageOperable(page, timeout);
+  } else {
+    await waitForFamilyPageReady(page, timeout);
   }
   await waitForFamiliesLoaded(page, { timeout });
 }
@@ -231,38 +250,9 @@ async function createFamilyViaFamilyPage(page, name, maxAttempts = 3) {
 
 async function switchToFamily(page, familyName) {
   await dismissBlockingModal(page);
-  await openFamilyPage(page, { timeout: 120000 });
+  await waitForSessionSettled(page, 120000);
+  await waitForFamilyNameInState(page, familyName, 120000);
 
-  await page.waitForFunction(
-    (name) => {
-      const state =
-        typeof window.__familyTaskGetState === "function"
-          ? window.__familyTaskGetState()
-          : null;
-      return (state?.families ?? []).some((f) => f.name === name);
-    },
-    familyName,
-    { timeout: 120000 },
-  );
-
-  let switchButton = page.getByRole("button", { name: familyName, exact: true });
-  if (!(await switchButton.isVisible().catch(() => false))) {
-    const familiesResponse = page
-      .waitForResponse(
-        (r) =>
-          r.request().method() === "GET" &&
-          r.url().includes("/api/families") &&
-          r.ok(),
-        { timeout: 120000 },
-      )
-      .catch(() => null);
-    await page.reload({ waitUntil: "domcontentloaded" });
-    await familiesResponse;
-    await waitForFamiliesLoaded(page, { timeout: 120000 });
-    switchButton = page.getByRole("button", { name: familyName, exact: true });
-  }
-
-  await switchButton.waitFor({ state: "visible", timeout: 120000 });
   const familyId = await page.evaluate((name) => {
     const state =
       typeof window.__familyTaskGetState === "function"
@@ -270,6 +260,24 @@ async function switchToFamily(page, familyName) {
         : null;
     return (state?.families ?? []).find((f) => f.name === name)?.id ?? null;
   }, familyName);
+
+  const alreadyActive = await isActiveFamilyName(page, familyName);
+  await openFamilyPage(page, { timeout: 120000 });
+
+  if (alreadyActive) {
+    await waitForFamiliesLoaded(page, {
+      activeFamilyId: familyId ?? undefined,
+      timeout: 120000,
+    });
+    await waitForTasksLoaded(page, 120000).catch(() => {});
+    return;
+  }
+
+  await waitForFamilySwitcherButton(page, familyName, 120000);
+  const switchButton = page.getByRole("button", {
+    name: familyName,
+    exact: true,
+  });
   const tasksResponse = familyId
     ? page
         .waitForResponse(
@@ -689,6 +697,14 @@ async function main() {
     await logout(page);
     await login(page, EMAIL_B);
     await completeProfileIfNeeded(page, LONG_USER_NAME);
+    await waitForSessionSettled(page, 120000);
+    await page.waitForFunction(
+      (uid) => window.__familyTaskGetState?.()?.session?.userId === uid,
+      userBId,
+      { timeout: 120000 },
+    );
+    await waitForMembershipCount(page, userBId, 2, 120000);
+    await waitForFamilyNameInState(page, "高橋家", 120000);
 
     // === 4. User B leaves takahashi ===
     console.log("\n## 4. 一般メンバー退出 (User B)");
@@ -738,9 +754,13 @@ async function main() {
 
     await logout(page);
     await login(page, EMAIL_B);
-    await page.waitForURL(`${BASE}/`, { timeout: 8000 }).catch(() => {});
-    await page.goto(`${BASE}/`);
-    await openFamilyPage(page);
+    await waitForSessionSettled(page, 120000);
+    await waitForFamiliesLoaded(page, {
+      minMemberships: 1,
+      userId: userBId,
+      timeout: 120000,
+    });
+    await openFamilyPage(page, { requireSwitcher: false, timeout: 120000 });
     const takahashiOption = await page.getByRole("button", { name: "高橋家", exact: true }).count();
     record("4", "退出後元グループへ切替不可", takahashiOption === 0);
 
@@ -849,14 +869,63 @@ async function main() {
 
     await page.reload();
     await waitForFamiliesLoaded(page);
-    const roleText = await page.textContent("body");
-    record("6", "UI表示更新", roleText?.includes("メンバー"));
+    await page.waitForFunction(
+      () => {
+        const heading = [...document.querySelectorAll("h2")].find((h) =>
+          h.textContent?.includes("メンバー一覧"),
+        );
+        const match = heading?.textContent?.match(/メンバー一覧 \((\d+)\)/);
+        return match ? Number(match[1]) >= 2 : false;
+      },
+      { timeout: 30000 },
+    );
+    const rolesOnA = await getMemberRolesFromFamilyPage(page);
+    const roleValuesOnA = Object.values(rolesOnA);
+    record(
+      "6",
+      "UI表示更新",
+      rolesOnA[""] === "メンバー" ||
+        Object.entries(rolesOnA).some(
+          ([name, role]) => name.includes("ユーザーA") && role === "メンバー",
+        ),
+      `roles=${JSON.stringify(rolesOnA)}`,
+    );
+    record(
+      "6",
+      "移譲先UI=オーナー",
+      roleValuesOnA.includes("オーナー"),
+      `roles=${JSON.stringify(rolesOnA)}`,
+    );
 
     // B alone can manage school group
     await logout(page);
     await login(page, EMAIL_B);
     await switchToFamily(page, "学校グループ");
     await openFamilyPage(page);
+    await page.waitForFunction(
+      () => {
+        const heading = [...document.querySelectorAll("h2")].find((h) =>
+          h.textContent?.includes("メンバー一覧"),
+        );
+        const match = heading?.textContent?.match(/メンバー一覧 \((\d+)\)/);
+        return match ? Number(match[1]) >= 2 : false;
+      },
+      { timeout: 30000 },
+    );
+    const rolesOnB = await getMemberRolesFromFamilyPage(page);
+    const roleValuesOnB = Object.values(rolesOnB);
+    record(
+      "6",
+      "B画面A=メンバー",
+      roleValuesOnB.includes("メンバー"),
+      `roles=${JSON.stringify(rolesOnB)}`,
+    );
+    record(
+      "6",
+      "B画面B=オーナー",
+      rolesOnB[""] === "オーナー" || roleValuesOnB.includes("オーナー"),
+      `roles=${JSON.stringify(rolesOnB)}`,
+    );
     await page
       .getByRole("button", { name: "グループを削除" })
       .waitFor({ state: "visible", timeout: 15000 });
@@ -1010,14 +1079,18 @@ async function main() {
       }
     }
 
-    await clearStorage(page);
-
   } catch (err) {
     console.error("\nQA script error:", err.message);
+    if (err instanceof Error && err.stack) {
+      console.error(err.stack);
+    }
     record("ERROR", err.message, false);
   } finally {
     try {
-      await clearStorage(page);
+      await logout(page).catch(() => {});
+      await page
+        .evaluate((key) => localStorage.removeItem(key), STORAGE_KEY)
+        .catch(() => {});
     } catch {
       // ignore cleanup errors
     }

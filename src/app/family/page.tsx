@@ -33,7 +33,6 @@ function FamilyPageContent() {
     familyMembers,
     userFamilies,
     activeFamilyId,
-    getMembershipForUser,
     switchFamily,
     createFamily,
     joinFamilyByInviteCode,
@@ -54,6 +53,7 @@ function FamilyPageContent() {
   const [transferTarget, setTransferTarget] = useState<string | null>(null);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  const [inviteCopied, setInviteCopied] = useState(false);
 
   if (!currentUser || !currentFamily || !currentMembership) {
     return (
@@ -131,9 +131,12 @@ function FamilyPageContent() {
   const handleCopyInviteCode = async () => {
     try {
       await navigator.clipboard.writeText(currentFamily.inviteCode);
+      setInviteCopied(true);
       setMessage("招待コードをコピーしました");
       setError("");
+      window.setTimeout(() => setInviteCopied(false), 2000);
     } catch {
+      setInviteCopied(false);
       setError("コピーに失敗しました");
     }
   };
@@ -372,10 +375,18 @@ function FamilyPageContent() {
             <button
               type="button"
               onClick={handleCopyInviteCode}
-              className="flex items-center gap-1.5 rounded-xl border border-emerald-200 bg-white px-3 py-2 text-xs font-bold text-emerald-800 hover:bg-emerald-50"
+              className={`flex items-center gap-1.5 rounded-xl border px-3 py-2 text-xs font-bold transition-colors ${
+                inviteCopied
+                  ? "border-emerald-400 bg-emerald-100 text-emerald-900"
+                  : "border-emerald-200 bg-white text-emerald-800 hover:bg-emerald-50"
+              }`}
             >
-              <Copy className="h-3.5 w-3.5" />
-              コピー
+              {inviteCopied ? (
+                <Check className="h-3.5 w-3.5" />
+              ) : (
+                <Copy className="h-3.5 w-3.5" />
+              )}
+              {inviteCopied ? "コピーしました" : "コピー"}
             </button>
             {isOwner && (
               <button
@@ -398,9 +409,8 @@ function FamilyPageContent() {
           </h2>
           <ul className="flex flex-col gap-2">
             {familyMembers.map((member) => {
-              const membership = getMembershipForUser(member.id);
               const isSelf = member.id === currentUser.id;
-              const isMemberOwner = membership?.role === "owner";
+              const isMemberOwner = member.role === "owner";
 
               return (
                 <li

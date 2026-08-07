@@ -36,9 +36,7 @@ class FirestoreService
 
         if ($this->client === null) {
             try {
-                $this->client = new FirestoreClient([
-                    'keyFilePath' => $this->credentialsPath(),
-                ]);
+                $this->client = new FirestoreClient($this->clientOptions());
             } catch (Throwable $e) {
                 throw new RuntimeException(
                     'Failed to initialize Firestore client: '.$e->getMessage(),
@@ -52,16 +50,51 @@ class FirestoreService
     }
 
     /**
+     * @return array<string, mixed>
+     */
+    private function clientOptions(): array
+    {
+        $options = [
+            'keyFilePath' => $this->credentialsPath(),
+            'transportConfig' => [
+                'grpc' => [
+                    'stubOpts' => [
+                        // Fail fast instead of blocking php artisan serve until max_execution_time.
+                        'timeout' => 10_000_000,
+                    ],
+                ],
+            ],
+        ];
+
+        $transport = env('FIRESTORE_TRANSPORT');
+        if (is_string($transport) && in_array($transport, ['rest', 'grpc'], true)) {
+            $options['transport'] = $transport;
+        } elseif (app()->environment('local')) {
+            // gRPC can hang and crash the single-process dev server; REST is reliable locally.
+            $options['transport'] = 'rest';
+        }
+
+        return $options;
+    }
+
+    public function resetClient(): void
+    {
+        $this->client = null;
+    }
+
+    /**
      * Verify connectivity with a read-only query (no writes).
      */
     public function checkConnection(): void
     {
         try {
-            $client = $this->getClient();
+            FirestoreRetry::run(function (): void {
+                $client = $this->getClient();
 
-            foreach ($client->collection('_familytask_health')->limit(1)->documents() as $_document) {
-                return;
-            }
+                foreach ($client->collection('_familytask_health')->limit(1)->documents() as $_document) {
+                    return;
+                }
+            }, $this);
         } catch (Throwable $e) {
             throw new RuntimeException(
                 'Firestore connection failed: '.$e->getMessage(),

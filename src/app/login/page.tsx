@@ -4,11 +4,12 @@ import { FormEvent, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { AuthGuard } from "@/components/AuthGuard";
 import { useApp } from "@/context/AppProvider";
+import { getPostLoginPath } from "@/lib/family-utils";
 
 type AuthMode = "login" | "register";
 
 function AuthForm() {
-  const { login, register, isAuthenticated, currentUser, hasFamily } = useApp();
+  const { login, register, logout, isAuthenticated, currentUser, memberships, isReady, sessionInitializing, familiesLoading } = useApp();
   const router = useRouter();
   const [mode, setMode] = useState<AuthMode>("login");
   const [email, setEmail] = useState("");
@@ -18,20 +19,83 @@ function AuthForm() {
   const [submitting, setSubmitting] = useState(false);
 
   useEffect(() => {
+    if (!isReady || sessionInitializing) return;
     if (!isAuthenticated || !currentUser) return;
+
     if (!currentUser.profileCompleted) {
       router.replace("/profile/setup");
-    } else if (!hasFamily) {
-      router.replace("/family/setup");
-    } else {
-      router.replace("/");
+      return;
     }
-  }, [isAuthenticated, currentUser, hasFamily, router]);
+
+    if (familiesLoading) return;
+    router.replace(getPostLoginPath(currentUser, memberships));
+  }, [
+    isReady,
+    sessionInitializing,
+    familiesLoading,
+    isAuthenticated,
+    currentUser,
+    memberships,
+    router,
+  ]);
+
+  const handleLogout = async () => {
+    setError("");
+    setSubmitting(true);
+    try {
+      await logout();
+      setEmail("");
+      setPassword("");
+      setPasswordConfirm("");
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  if (isAuthenticated && currentUser && !currentUser.profileCompleted) {
+    return (
+      <div className="mx-auto flex min-h-screen max-w-md flex-col justify-center px-4 py-8">
+        <div className="mb-8 text-center">
+          <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-2xl bg-gradient-to-tr from-amber-400 to-orange-400 text-3xl shadow-md shadow-amber-200">
+            🏡
+          </div>
+          <h1 className="text-2xl font-extrabold text-slate-800">ログイン済みです</h1>
+          <p className="mt-2 text-sm text-slate-500">
+            {currentUser.email || "このアカウント"} でサインインしています。
+            プロフィール設定が未完了のため、ログインフォームの代わりに設定画面へ進む場合があります。
+          </p>
+        </div>
+
+        <div className="flex flex-col gap-3 rounded-3xl border border-amber-100 bg-white p-6 shadow-sm">
+          <button
+            type="button"
+            onClick={() => router.push("/profile/setup")}
+            className="w-full rounded-xl bg-gradient-to-r from-amber-400 to-orange-400 px-4 py-3 font-bold text-white shadow-md shadow-amber-200"
+          >
+            プロフィール設定を続ける
+          </button>
+          <button
+            type="button"
+            onClick={handleLogout}
+            disabled={submitting}
+            className="w-full rounded-xl border border-slate-200 px-4 py-3 text-sm font-bold text-slate-700 hover:bg-slate-50 disabled:opacity-60"
+          >
+            ログアウトして別のアカウントでログイン
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   const redirectAfterAuth = (
     result: Awaited<ReturnType<typeof login>>,
+    authMode: AuthMode,
   ) => {
     if (!result.success) return;
+    if (authMode === "register") {
+      router.push("/profile/setup");
+      return;
+    }
     if (!result.profileCompleted) {
       router.push("/profile/setup");
     } else if (!result.hasFamily) {
@@ -57,7 +121,7 @@ function AuthForm() {
         return;
       }
 
-      redirectAfterAuth(result);
+      redirectAfterAuth(result, mode);
     } finally {
       setSubmitting(false);
     }

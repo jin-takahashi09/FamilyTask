@@ -6,6 +6,11 @@ export type UserProfile = {
   profileCompleted: boolean;
 };
 
+/** Member profile with role in the active family (from members API). */
+export type FamilyMemberWithRole = UserProfile & {
+  role: "owner" | "member";
+};
+
 export type FamilyGroup = {
   id: string;
   name: string;
@@ -51,7 +56,7 @@ export type TaskSortOrder =
 
 export type AddTaskResult =
   | { success: true; createdCount: number; recurrenceGroupId: string | null }
-  | { success: false };
+  | { success: false; error?: string };
 
 export type Session = {
   userId: string;

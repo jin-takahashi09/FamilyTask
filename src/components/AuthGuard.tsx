@@ -3,6 +3,7 @@
 import { useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { useApp } from "@/context/AppProvider";
+import { getPostLoginPath } from "@/lib/family-utils";
 
 type AuthGuardProps = {
   children: React.ReactNode;
@@ -23,21 +24,21 @@ export function AuthGuard({
     isAuthenticated,
     hasFamily,
     familiesLoading,
+    sessionInitializing,
     profileLoadError,
+    memberships,
   } = useApp();
   const router = useRouter();
 
-  useEffect(() => {
-    if (!isReady || profileLoadError || familiesLoading) return;
+  const sessionSettled =
+    isReady && !sessionInitializing && (!requireFamily || !familiesLoading);
 
-    if (redirectIfAuthenticated && isAuthenticated) {
-      if (!currentUser?.profileCompleted) {
-        router.replace("/profile/setup");
-      } else if (!hasFamily) {
-        router.replace("/family/setup");
-      } else {
-        router.replace("/");
-      }
+  useEffect(() => {
+    if (!sessionSettled) return;
+    if (profileLoadError && requireProfile) return;
+
+    if (redirectIfAuthenticated && isAuthenticated && currentUser?.profileCompleted) {
+      router.replace(getPostLoginPath(currentUser, memberships));
       return;
     }
 
@@ -66,19 +67,19 @@ export function AuthGuard({
       router.replace("/family/setup");
     }
   }, [
-    isReady,
+    sessionSettled,
     isAuthenticated,
     currentUser,
     hasFamily,
     profileLoadError,
-    familiesLoading,
+    memberships,
     requireProfile,
     requireFamily,
     redirectIfAuthenticated,
     router,
   ]);
 
-  if (!isReady) {
+  if (!isReady || sessionInitializing) {
     return (
       <div className="flex min-h-screen items-center justify-center text-sm font-bold text-amber-700">
         読み込み中...
@@ -86,7 +87,7 @@ export function AuthGuard({
     );
   }
 
-  if (familiesLoading && requireFamily) {
+  if (requireFamily && familiesLoading && !hasFamily) {
     return (
       <div className="flex min-h-screen items-center justify-center text-sm font-bold text-amber-700">
         グループ情報を読み込み中...
@@ -94,7 +95,11 @@ export function AuthGuard({
     );
   }
 
-  if (profileLoadError) {
+  if (
+    profileLoadError &&
+    !currentUser?.profileCompleted &&
+    requireProfile
+  ) {
     return (
       <div className="mx-auto flex min-h-screen max-w-md flex-col justify-center px-4 py-8 text-center">
         <p className="text-sm font-bold text-rose-500">{profileLoadError}</p>
@@ -105,7 +110,9 @@ export function AuthGuard({
     );
   }
 
-  if (redirectIfAuthenticated && isAuthenticated) return null;
+  if (redirectIfAuthenticated && isAuthenticated && currentUser?.profileCompleted) {
+    return null;
+  }
   if (!redirectIfAuthenticated && !isAuthenticated) return null;
   if (
     !redirectIfAuthenticated &&
@@ -121,7 +128,7 @@ export function AuthGuard({
     isAuthenticated &&
     currentUser?.profileCompleted &&
     !hasFamily &&
-    !familiesLoading
+    sessionSettled
   ) {
     return null;
   }

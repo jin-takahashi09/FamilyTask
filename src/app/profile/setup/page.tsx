@@ -7,18 +7,28 @@ import { ProfileForm } from "@/components/ProfileForm";
 import { useApp } from "@/context/AppProvider";
 
 function ProfileSetupContent() {
-  const { currentUser, completeProfile, hasFamily } = useApp();
+  const { currentUser, completeProfile, hasFamily, isReady, sessionInitializing } = useApp();
   const router = useRouter();
   const [error, setError] = useState("");
 
+  const sessionSettled = isReady && !sessionInitializing;
+
   useEffect(() => {
-    if (!currentUser?.profileCompleted) return;
+    if (!currentUser?.profileCompleted || !sessionSettled) return;
     if (!hasFamily) {
       router.replace("/family/setup");
     } else {
       router.replace("/");
     }
-  }, [currentUser, hasFamily, router]);
+  }, [currentUser, hasFamily, sessionSettled, router]);
+
+  if (!sessionSettled) {
+    return (
+      <div className="flex min-h-screen items-center justify-center text-sm font-bold text-amber-700">
+        読み込み中...
+      </div>
+    );
+  }
 
   if (!currentUser) return null;
 
@@ -54,6 +64,15 @@ function ProfileSetupContent() {
             router.push("/family/setup");
           }}
         />
+        <div className="mt-6 border-t border-slate-100 pt-4 text-center">
+          <button
+            type="button"
+            onClick={() => router.push("/login")}
+            className="text-xs font-bold text-slate-500 underline-offset-2 hover:text-slate-700 hover:underline"
+          >
+            別のアカウントでログイン
+          </button>
+        </div>
       </div>
     </div>
   );

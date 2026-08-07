@@ -69,8 +69,25 @@ export function migrateState(raw: LegacyState): AppState {
     }
   }
 
-  const families: FamilyGroup[] = [];
-  const memberships: FamilyMembership[] = [];
+  const families: FamilyGroup[] = Array.isArray(raw.families)
+    ? raw.families.map((family) => ({
+        id: family.id,
+        name: family.name,
+        inviteCode: family.inviteCode,
+        ownerId: family.ownerId,
+        createdAt: family.createdAt,
+      }))
+    : [];
+
+  const memberships: FamilyMembership[] = Array.isArray(raw.memberships)
+    ? raw.memberships.map((membership) => ({
+        id: membership.id,
+        familyId: membership.familyId,
+        userId: membership.userId,
+        role: membership.role,
+        joinedAt: membership.joinedAt,
+      }))
+    : [];
 
   const activeFamilyPreferences: Record<string, string> =
     raw.activeFamilyPreferences &&
@@ -148,8 +165,6 @@ export function saveState(state: AppState): void {
     STORAGE_KEY,
     JSON.stringify({
       ...state,
-      families: [],
-      memberships: [],
       tasks: [],
     }),
   );

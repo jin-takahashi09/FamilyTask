@@ -329,7 +329,12 @@ async function main() {
 
     console.log("\n## 3. Logout/login restore");
     const savedId = state.session?.activeFamilyId;
+    const urlTrail = [];
+    page.on("framenavigated", (frame) => {
+      if (frame === page.mainFrame()) urlTrail.push(frame.url());
+    });
     await logout(page);
+    urlTrail.length = 0;
     await registerOrLogin(page, EMAIL_B);
     await waitForFamiliesLoaded(page, {
       userId: userBId,
@@ -339,6 +344,13 @@ async function main() {
     state = await getState(page);
     record("3", "再ログイン後所属復元", state.memberships.some((m) => m.userId === userBId));
     record("3", "activeFamilyId復元", state.session?.activeFamilyId === savedId);
+    const hitFamilySetup = urlTrail.some((u) => u.includes("/family/setup"));
+    record(
+      "3",
+      "再ログイン中/family/setup非表示",
+      !hitFamilySetup,
+      hitFamilySetup ? urlTrail.join(" -> ") : "",
+    );
 
     console.log("\n## 4. Cleanup QA Firestore data");
     await logout(page);
