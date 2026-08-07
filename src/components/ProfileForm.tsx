@@ -3,6 +3,12 @@
 import { FormEvent, useRef, useState } from "react";
 import { Camera } from "lucide-react";
 import { UserAvatar } from "@/components/UserAvatar";
+import {
+  isProfileImageWithinSizeLimit,
+  processProfileImage,
+  PROFILE_IMAGE_PROCESS_FAILED_MESSAGE,
+  PROFILE_IMAGE_TOO_LARGE_MESSAGE,
+} from "@/lib/profile-image";
 import type { UserProfile } from "@/lib/types";
 
 export type ProfileFormData = {
@@ -30,27 +36,40 @@ export function ProfileForm({
   );
   const [error, setError] = useState("");
   const [submitting, setSubmitting] = useState(false);
+  const [processingImage, setProcessingImage] = useState(false);
 
   const previewUser = {
     displayName,
     profileImage,
   };
 
-  const handleImageChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleImageChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
+
     if (!file.type.startsWith("image/")) {
       setError("画像ファイルを選択してください");
+      e.target.value = "";
       return;
     }
-    if (file.size > 2 * 1024 * 1024) {
-      setError("画像は2MB以下にしてください");
+
+    if (!isProfileImageWithinSizeLimit(file.size)) {
+      setError(PROFILE_IMAGE_TOO_LARGE_MESSAGE);
+      e.target.value = "";
       return;
     }
+
     setError("");
-    const reader = new FileReader();
-    reader.onload = () => setProfileImage(reader.result as string);
-    reader.readAsDataURL(file);
+    setProcessingImage(true);
+    try {
+      const processed = await processProfileImage(file);
+      setProfileImage(processed);
+    } catch {
+      setError(PROFILE_IMAGE_PROCESS_FAILED_MESSAGE);
+    } finally {
+      setProcessingImage(false);
+      e.target.value = "";
+    }
   };
 
   const handleSubmit = async (e: FormEvent) => {
@@ -82,15 +101,17 @@ export function ProfileForm({
           type="file"
           accept="image/*"
           className="hidden"
+          disabled={processingImage || submitting}
           onChange={handleImageChange}
         />
         <button
           type="button"
+          disabled={processingImage || submitting}
           onClick={() => fileRef.current?.click()}
-          className="flex items-center gap-2 rounded-xl border border-amber-200 bg-amber-50 px-4 py-2 text-sm font-bold text-amber-800 transition-colors hover:bg-amber-100"
+          className="flex items-center gap-2 rounded-xl border border-amber-200 bg-amber-50 px-4 py-2 text-sm font-bold text-amber-800 transition-colors hover:bg-amber-100 disabled:cursor-not-allowed disabled:opacity-60"
         >
           <Camera className="h-4 w-4" />
-          プロフィール画像を選択
+          {processingImage ? "画像を処理中..." : "プロフィール画像を選択"}
         </button>
         {profileImage && (
           <button
@@ -133,10 +154,14 @@ export function ProfileForm({
         )}
         <button
           type="submit"
-          disabled={submitting}
+          disabled={submitting || processingImage}
           className="rounded-xl bg-gradient-to-r from-amber-400 to-orange-400 px-6 py-3 text-sm font-bold text-white shadow-md shadow-amber-200 hover:from-amber-500 hover:to-orange-500 disabled:cursor-not-allowed disabled:opacity-60"
         >
-          {submitting ? "保存中..." : submitLabel}
+          {processingImage
+            ? "画像を処理中..."
+            : submitting
+              ? "保存中..."
+              : submitLabel}
         </button>
       </div>
     </form>

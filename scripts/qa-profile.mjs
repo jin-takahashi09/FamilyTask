@@ -7,6 +7,13 @@ import {
   profileFormToApiPayload,
   resolveLocalProfileImage,
 } from "../src/lib/profile-utils.ts";
+import {
+  isProfileImageWithinSizeLimit,
+  PROFILE_IMAGE_MAX_INPUT_BYTES,
+  PROFILE_IMAGE_MAX_LONG_EDGE,
+  PROFILE_IMAGE_TOO_LARGE_MESSAGE,
+  scaleProfileImageDimensions,
+} from "../src/lib/profile-image.ts";
 
 const results = [];
 
@@ -113,6 +120,74 @@ record(
       profileCompleted: true,
     },
   ]) === "data:image/png;base64,keep",
+);
+
+console.log("\n## 6. プロフィール画像サイズ制限");
+record(
+  "入力上限は10MB",
+  PROFILE_IMAGE_MAX_INPUT_BYTES === 10 * 1024 * 1024,
+);
+record(
+  "2MB超えは許可",
+  isProfileImageWithinSizeLimit(3 * 1024 * 1024),
+);
+record(
+  "10MB以下は許可",
+  isProfileImageWithinSizeLimit(10 * 1024 * 1024),
+);
+record(
+  "10MB超過は拒否",
+  !isProfileImageWithinSizeLimit(10 * 1024 * 1024 + 1),
+);
+record(
+  "0バイトは拒否",
+  !isProfileImageWithinSizeLimit(0),
+);
+record(
+  "超過メッセージ",
+  PROFILE_IMAGE_TOO_LARGE_MESSAGE === "画像は10MB以下のものを選択してください",
+);
+
+console.log("\n## 7. プロフィール画像リサイズ");
+const scaled = scaleProfileImageDimensions(4032, 3024);
+record(
+  "長辺1024pxに縮小",
+  scaled.width === 1024 && scaled.height === 768,
+  `${scaled.width}x${scaled.height}`,
+);
+record(
+  "小さい画像はそのまま",
+  scaleProfileImageDimensions(800, 600).width === 800,
+);
+record(
+  "正方形も1024上限",
+  scaleProfileImageDimensions(2000, 2000).width === PROFILE_IMAGE_MAX_LONG_EDGE,
+);
+
+console.log("\n## 8. 既存WebP/PNG data URL互換");
+record(
+  "既存PNG data URLを維持",
+  resolveLocalProfileImage("uid-1", [
+    {
+      id: "uid-1",
+      email: "a@example.com",
+      displayName: "A",
+      profileImage: "data:image/png;base64,existing",
+      profileCompleted: true,
+    },
+  ]) === "data:image/png;base64,existing",
+);
+record(
+  "WebP data URLも表示対象",
+  resolveLocalProfileImage("uid-1", [
+    {
+      id: "uid-1",
+      email: "a@example.com",
+      displayName: "A",
+      profileImage: "data:image/webp;base64,compressed",
+      profileCompleted: true,
+    },
+  ]) === "data:image/webp;base64,compressed",
 );
 
 const failed = results.filter((r) => !r.pass);
