@@ -5,88 +5,95 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { AppHeader } from "@/components/AppHeader";
 import { AuthGuard } from "@/components/AuthGuard";
 import { Calendar } from "@/components/Calendar";
-import { MemberSidebar, MyTodayTasks } from "@/components/MemberSidebar";
+import { MyTodayTasks } from "@/components/MemberSidebar";
 import { MemberSwitcher } from "@/components/MemberSwitcher";
 import { useApp } from "@/context/AppProvider";
+import {
+  homeHrefForSelection,
+  parseSelectedUserIds,
+  toggleSelectedUserId,
+} from "@/lib/member-selection";
 
 function HomeContentInner() {
   const [currentMonth, setCurrentMonth] = useState(new Date());
   const { currentUser, isFamilyMember } = useApp();
   const router = useRouter();
   const searchParams = useSearchParams();
+  const usersParam = searchParams.get("users");
   const userParam = searchParams.get("user");
 
-  const effectiveUserId = useMemo(() => {
-    if (!currentUser) return "";
-    if (
-      userParam &&
-      userParam !== currentUser.id &&
-      isFamilyMember(userParam)
-    ) {
-      return userParam;
-    }
-    return currentUser.id;
-  }, [userParam, currentUser, isFamilyMember]);
+  const selectedUserIds = useMemo(() => {
+    if (!currentUser) return [];
+    return parseSelectedUserIds(
+      usersParam,
+      userParam,
+      currentUser.id,
+      isFamilyMember,
+    );
+  }, [usersParam, userParam, currentUser, isFamilyMember]);
 
   const handleSelectUser = useCallback(
     (userId: string) => {
       if (!currentUser) return;
-
-      if (userId === currentUser.id) {
-        router.replace("/", { scroll: false });
-        return;
-      }
-
-      router.replace(`/?user=${encodeURIComponent(userId)}`, { scroll: false });
+      const next = toggleSelectedUserId(selectedUserIds, userId);
+      router.replace(
+        homeHrefForSelection(next.length > 0 ? next : [currentUser.id], currentUser.id),
+        { scroll: false },
+      );
     },
-    [currentUser, router],
+    [currentUser, router, selectedUserIds],
   );
 
-  if (!currentUser || !effectiveUserId) return null;
-
-  const isSelf = effectiveUserId === currentUser.id;
+  if (!currentUser) return null;
 
   const calendarProps = {
     currentMonth,
     onMonthChange: setCurrentMonth,
-    userId: effectiveUserId,
-    assigneeOnly: isSelf,
-    isSelf,
+    userIds: selectedUserIds,
+    currentUserId: currentUser.id,
+    isSelf: selectedUserIds.length === 1 && selectedUserIds[0] === currentUser.id,
   };
 
   return (
-    <div className="mx-auto flex min-h-screen w-full max-w-6xl flex-col overflow-x-hidden">
-      <div className="p-3 pb-0 sm:p-6 sm:pb-0">
-        <AppHeader showLogin={false} />
+    <div className="mx-auto flex h-dvh max-h-dvh w-full max-w-[90rem] flex-col overflow-hidden">
+      <div className="shrink-0 px-3 pt-3 sm:px-4 sm:pt-4 md:hidden">
+        <AppHeader showLogin={false} compact />
       </div>
 
       {/* スマホ専用レイアウト */}
-      <main className="flex flex-col gap-3 px-3 pb-2 pt-1 md:hidden">
+      <main className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto px-3 pb-2 pt-1 md:hidden">
         <MemberSwitcher
-          selectedUserId={effectiveUserId}
+          selectedUserIds={selectedUserIds}
           onSelectUser={handleSelectUser}
         />
         <Calendar {...calendarProps} compact hideUserBanner />
-        {isSelf && (
-          <div className="mt-2 pt-1">
-            <MyTodayTasks compactMobile />
-          </div>
-        )}
+        <MyTodayTasks compactMobile userIds={selectedUserIds} />
       </main>
 
-      {/* PC / タブレット */}
-      <main className="hidden flex-grow items-start gap-5 p-3 pt-2 md:grid md:grid-cols-[minmax(0,1fr)_minmax(200px,28%)] md:p-6 md:pt-2 lg:grid-cols-[minmax(0,7fr)_minmax(0,3fr)] lg:gap-6">
-        <div className="flex min-w-0 flex-col gap-5">
-          <Calendar {...calendarProps} />
-          {isSelf && <MyTodayTasks />}
-        </div>
-        <MemberSidebar
-          selectedUserId={effectiveUserId}
-          onSelectUser={handleSelectUser}
+      {/* PC：1面のダッシュボード */}
+      <div className="hidden min-h-0 flex-1 flex-col overflow-hidden md:flex">
+        <AppHeader
+          showLogin={false}
+          board
+          members={
+            <MemberSwitcher
+              variant="header"
+              selectedUserIds={selectedUserIds}
+              onSelectUser={handleSelectUser}
+            />
+          }
         />
-      </main>
+        <main className="grid min-h-0 flex-1 grid-cols-[minmax(0,71fr)_minmax(240px,29fr)] bg-[#fffdfb]">
+          <div className="flex min-h-0 min-w-0 flex-col px-4 py-3 lg:px-5 lg:py-4">
+            <Calendar {...calendarProps} compact hideUserBanner board />
+          </div>
+          <div className="flex min-h-0 min-w-0 flex-col border-l border-stone-200/80 bg-[#faf7f2] px-3 py-3 lg:px-4 lg:py-4">
+            <MyTodayTasks fill board userIds={selectedUserIds} />
+          </div>
+        </main>
+      </div>
 
-      <p className="px-3 pb-3 pt-2 text-center text-xs text-amber-700/60 sm:px-6 sm:pb-6">
+      <p className="shrink-0 px-3 pb-3 pt-0 text-center text-xs text-amber-700/60 md:hidden">
         データはこの端末のブラウザに保存されます（お試し版）
       </p>
     </div>

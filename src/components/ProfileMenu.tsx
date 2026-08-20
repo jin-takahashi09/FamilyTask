@@ -2,11 +2,16 @@
 
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
-import { LogOut, User } from "lucide-react";
+import { ChevronDown, LogOut, User } from "lucide-react";
 import { UserAvatar } from "@/components/UserAvatar";
 import { useApp } from "@/context/AppProvider";
 
-export function ProfileMenu() {
+type ProfileMenuProps = {
+  /** PCダッシュボード用：アカウントメニューとして見せる */
+  accountMenu?: boolean;
+};
+
+export function ProfileMenu({ accountMenu = false }: ProfileMenuProps) {
   const { currentUser, logout } = useApp();
   const [open, setOpen] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -21,11 +26,17 @@ export function ProfileMenu() {
       }
     };
 
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setOpen(false);
+    };
+
     document.addEventListener("mousedown", handlePointerDown);
     document.addEventListener("touchstart", handlePointerDown);
+    document.addEventListener("keydown", handleKeyDown);
     return () => {
       document.removeEventListener("mousedown", handlePointerDown);
       document.removeEventListener("touchstart", handlePointerDown);
+      document.removeEventListener("keydown", handleKeyDown);
     };
   }, [open]);
 
@@ -36,15 +47,31 @@ export function ProfileMenu() {
       <button
         type="button"
         onClick={() => setOpen((prev) => !prev)}
-        className="relative h-10 w-10 shrink-0 rounded-full transition-opacity hover:opacity-90 active:opacity-80 sm:h-11 sm:w-11"
-        aria-label="プロフィールメニューを開く"
+        className={
+          accountMenu
+            ? "flex items-center gap-1.5 rounded-xl border border-stone-200/90 bg-white px-2 py-1.5 transition-colors hover:border-stone-300 hover:bg-stone-50 active:bg-stone-100"
+            : "relative h-10 w-10 shrink-0 rounded-full transition-opacity hover:opacity-90 active:opacity-80 sm:h-11 sm:w-11"
+        }
+        aria-label="アカウントメニューを開く"
         aria-expanded={open}
       >
         <UserAvatar
           user={currentUser}
           size="md"
-          className="!h-10 !w-10 !bg-transparent !text-sm sm:!h-11 sm:!w-11 sm:!text-base"
+          className={
+            accountMenu
+              ? "!h-9 !w-9 !bg-stone-100 !text-xs"
+              : "!h-10 !w-10 !bg-transparent !text-sm sm:!h-11 sm:!w-11 sm:!text-base"
+          }
         />
+        {accountMenu && (
+          <ChevronDown
+            className={`h-4 w-4 shrink-0 text-slate-400 transition-transform ${
+              open ? "rotate-180" : ""
+            }`}
+            aria-hidden
+          />
+        )}
       </button>
 
       {open && (
