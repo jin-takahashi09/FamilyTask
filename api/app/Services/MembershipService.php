@@ -152,6 +152,41 @@ class MembershipService
         return $membership;
     }
 
+    /**
+     * Copy the user's current avatar onto every membership so family
+     * members can resolve images from memberships without joining users.
+     */
+    public function syncAvatarForUser(string $userId, string $avatarType, string $avatarValue): void
+    {
+        try {
+            $memberships = $this->listByUserId($userId);
+        } catch (Throwable $e) {
+            Log::warning('Membership avatar sync skipped', [
+                'userId' => $userId,
+                'exceptionClass' => $e::class,
+                'exceptionMessage' => $e->getMessage(),
+            ]);
+
+            return;
+        }
+
+        foreach ($memberships as $membership) {
+            try {
+                $this->membershipReference($membership->familyId, $userId)->update([
+                    ['path' => 'avatarType', 'value' => $avatarType],
+                    ['path' => 'avatarValue', 'value' => $avatarValue],
+                ]);
+            } catch (Throwable $e) {
+                Log::warning('Membership avatar update skipped', [
+                    'userId' => $userId,
+                    'familyId' => $membership->familyId,
+                    'exceptionClass' => $e::class,
+                    'exceptionMessage' => $e->getMessage(),
+                ]);
+            }
+        }
+    }
+
     public function membershipReference(string $familyId, string $userId): \Google\Cloud\Firestore\DocumentReference
     {
         return $this->client()

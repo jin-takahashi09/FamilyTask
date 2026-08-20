@@ -3,7 +3,6 @@
 import { useState } from "react";
 import {
   AlertTriangle,
-  ArrowRight,
   Check,
   Clock,
   ListChecks,
@@ -12,10 +11,10 @@ import {
   Trash2,
 } from "lucide-react";
 import { useApp } from "@/context/AppProvider";
+import { AssigneeBadge } from "@/components/MemberColorLabel";
 import { TaskForm } from "@/components/TaskForm";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { RecurringDeleteDialog } from "@/components/RecurringDeleteDialog";
-import { UserAvatar } from "@/components/UserAvatar";
 import { useNowMinute } from "@/hooks/useNowMinute";
 import { getRepeatLabel } from "@/lib/recurrence-utils";
 import { isTaskOverdue } from "@/lib/overdue-utils";
@@ -35,36 +34,12 @@ type TaskListProps = {
   showFilters?: boolean;
   showSort?: boolean;
   embedded?: boolean;
+  fillList?: boolean;
   title?: string;
   showAddHint?: boolean;
 };
 
 const STATUS_FILTERS = ["すべて", "未完了", "完了済み"] as const;
-
-import type { UserProfile } from "@/lib/types";
-
-function MemberBadge({
-  user,
-  name,
-  initials,
-}: {
-  user?: UserProfile;
-  name: string;
-  initials: string;
-}) {
-  return (
-    <span className="flex items-center gap-1 rounded-lg border border-slate-200 bg-white px-2 py-1 text-slate-700 shadow-xs">
-      {user ? (
-        <UserAvatar user={user} size="sm" />
-      ) : (
-        <span className="flex h-6 w-6 items-center justify-center rounded-full bg-slate-200 text-[10px]">
-          {initials}
-        </span>
-      )}
-      <span>{name}</span>
-    </span>
-  );
-}
 
 export function TaskList({
   tasks,
@@ -72,6 +47,7 @@ export function TaskList({
   showFilters = true,
   showSort = false,
   embedded = false,
+  fillList = false,
   title = "タスク一覧",
   showAddHint = true,
 }: TaskListProps) {
@@ -173,41 +149,23 @@ export function TaskList({
     closeDeleteDialogs();
   };
 
-  const renderMemberSection = (task: Task) => {
-    if (!shouldShowMemberFlow(task)) {
-      return (
-        <div className="flex min-w-0 flex-col gap-2 sm:flex-row sm:items-center">
-          <span className="shrink-0 whitespace-nowrap font-bold text-amber-800/80">
-            種別:
-          </span>
-          <span className="rounded-lg border border-emerald-200 bg-emerald-50 px-2.5 py-1 text-[11px] font-extrabold text-emerald-700">
-            自分用
-          </span>
-        </div>
-      );
-    }
-
-    const requester = getUserDisplay(task.requesterId);
-    const assignee = getUserDisplay(task.assigneeId);
+  const renderTaskKindSection = (task: Task) => {
+    const isFamily = shouldShowMemberFlow(task);
 
     return (
       <div className="flex min-w-0 flex-col gap-2 sm:flex-row sm:items-center">
         <span className="shrink-0 whitespace-nowrap font-bold text-amber-800/80">
-          メンバー:
+          種別:
         </span>
-        <div className="flex flex-wrap items-center gap-1.5 font-bold">
-          <MemberBadge
-            user={"user" in requester ? requester.user : undefined}
-            name={requester.name}
-            initials={requester.initials}
-          />
-          <ArrowRight className="h-2.5 w-2.5 shrink-0 text-amber-400" />
-          <MemberBadge
-            user={"user" in assignee ? assignee.user : undefined}
-            name={assignee.name}
-            initials={assignee.initials}
-          />
-        </div>
+        <span
+          className={`rounded-lg border px-2.5 py-1 text-[11px] font-extrabold ${
+            isFamily
+              ? "border-violet-200 bg-violet-50 text-violet-700"
+              : "border-emerald-200 bg-emerald-50 text-emerald-700"
+          }`}
+        >
+          {isFamily ? "家族用" : "自分用"}
+        </span>
       </div>
     );
   };
@@ -238,7 +196,7 @@ export function TaskList({
     ) : (
       <ul
         className={`custom-scrollbar flex flex-col gap-3.5 overflow-y-auto pr-1 ${
-          embedded ? "max-h-80" : "max-h-[600px]"
+          fillList ? "min-h-0 flex-1" : embedded ? "max-h-80" : "max-h-[600px]"
         }`}
       >
         {displayTasks.map((task) => {
@@ -334,8 +292,20 @@ export function TaskList({
                 </div>
               </div>
 
+              {task.assigneeId && (
+                <div className="flex items-center gap-2 pl-10 sm:pl-11">
+                  <span className="shrink-0 text-[11px] font-bold text-slate-500">
+                    担当:
+                  </span>
+                  <AssigneeBadge
+                    userId={task.assigneeId}
+                    name={getUserDisplay(task.assigneeId).name}
+                  />
+                </div>
+              )}
+
               <div className="-mx-4 -mb-4 flex flex-col gap-3 rounded-b-2xl border-t border-amber-50 bg-amber-50/20 p-3.5 text-xs sm:-mx-5 sm:-mb-5 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between sm:px-5">
-                {renderMemberSection(task)}
+                {renderTaskKindSection(task)}
                 <div className="flex flex-wrap items-center gap-2">
                   <span className="shrink-0 whitespace-nowrap font-bold text-amber-800/80">
                     締切:
@@ -400,13 +370,13 @@ export function TaskList({
 
   if (embedded) {
     return (
-      <>
+      <div className={fillList ? "flex min-h-0 flex-1 flex-col" : undefined}>
         {deleteDialogs}
         {showSort && (
-          <div className="mb-3 flex justify-end">{sortControl}</div>
+          <div className="mb-3 flex shrink-0 justify-end">{sortControl}</div>
         )}
         {listContent}
-      </>
+      </div>
     );
   }
 

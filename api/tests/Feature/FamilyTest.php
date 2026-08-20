@@ -157,6 +157,8 @@ class FamilyTest extends TestCase
                         userId: 'firebase-uid-123',
                         displayName: 'ユーザーA',
                         email: 'user@example.com',
+                        avatarType: 'none',
+                        avatarValue: '',
                         profileImage: null,
                         role: 'owner',
                         joinedAt: '2026-08-06T00:00:00+00:00',
@@ -169,6 +171,42 @@ class FamilyTest extends TestCase
         ])
             ->assertOk()
             ->assertJsonPath('members.0.userId', 'firebase-uid-123');
+    }
+
+    public function test_families_members_includes_signed_avatar_url(): void
+    {
+        $this->mock(FamilyService::class, function (MockInterface $mock) {
+            $mock->shouldReceive('listMembers')
+                ->once()
+                ->with('firebase-uid-123', 'family-1')
+                ->andReturn([
+                    new FamilyMemberData(
+                        userId: 'member-uid',
+                        displayName: 'ユーザーB',
+                        email: 'b@example.com',
+                        avatarType: 'image',
+                        avatarValue: 'profile-images/member-uid/avatar.webp',
+                        profileImage: null,
+                        role: 'member',
+                        joinedAt: '2026-08-06T00:00:00+00:00',
+                    ),
+                ]);
+        });
+
+        $this->mock(\App\Services\FirebaseStorageService::class, function (MockInterface $mock) {
+            $mock->shouldReceive('signedUrlForProfileAvatar')
+                ->once()
+                ->with('member-uid', 'profile-images/member-uid/avatar.webp')
+                ->andReturn('https://storage.example/member.webp?signed=1');
+        });
+
+        $this->getJson('/api/families/family-1/members', [
+            'Authorization' => 'Bearer valid-token',
+        ])
+            ->assertOk()
+            ->assertJsonPath('members.0.avatarType', 'image')
+            ->assertJsonPath('members.0.avatarValue', 'profile-images/member-uid/avatar.webp')
+            ->assertJsonPath('members.0.avatarUrl', 'https://storage.example/member.webp?signed=1');
     }
 
     public function test_families_leave_allows_member(): void

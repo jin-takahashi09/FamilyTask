@@ -42,16 +42,22 @@ import {
   ProfileFetchError,
   ProfileNotFoundError,
   ProfileSaveError,
+  ProfileAvatarError,
   saveMyProfile,
+  uploadProfileAvatar,
+  deleteProfileAvatar,
   type FirestoreProfile,
 } from "@/lib/api/profile";
 import {
   applySavedProfile,
   mergeFirestoreProfile,
   profileFormToApiPayload,
+  shouldDeleteProfileAvatar,
+  shouldUploadProfileAvatar,
   withLocalProfileImage,
   type ProfileFetchStatus,
 } from "@/lib/profile-utils";
+import { dataUrlToBlob } from "@/lib/profile-image";
 import {
   getFirebaseAuthErrorMessage,
   validateRegistrationInput,
@@ -242,6 +248,7 @@ function mergeMemberProfiles(
       email: profile.email || existing.email,
       profileCompleted: profile.profileCompleted || existing.profileCompleted,
       profileImage: existing.profileImage ?? profile.profileImage,
+      avatarUrl: profile.avatarUrl ?? existing.avatarUrl ?? null,
     };
   }
 
@@ -416,15 +423,13 @@ export function AppProvider({ children }: { children: ReactNode }) {
       }
 
       const promise = (async () => {
-        setActiveFamilyMembers([]);
-        setMembersFamilyId(null);
         try {
           const members = await fetchFamilyMembers(familyId);
           updateState((prev) => mergeMemberProfiles(prev, members));
           setActiveFamilyMembers(members);
           setMembersFamilyId(familyId);
         } catch {
-          // member list refresh failure is non-fatal
+          // Keep the previous member list if refresh fails.
         }
       })();
 
@@ -534,8 +539,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
               ? {
                   ...existing,
                   displayName: profile.displayName,
-                  avatarType: profile.avatarType,
-                  avatarValue: profile.avatarValue,
+                  avatarUrl: profile.avatarUrl ?? null,
+                  profileImage: profile.avatarUrl ? null : existing.profileImage,
                   profileCompleted: true,
                 }
               : user,
@@ -885,8 +890,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
             state.users,
           ),
           role: member.role,
-        }))
-        .filter((user) => user.profileCompleted);
+        }));
       const memberMemberships: FamilyMembership[] = activeFamilyMembers.map(
         (member) => ({
           id: `${currentFamilyId}_${member.userId}`,
@@ -1028,13 +1032,52 @@ export function AppProvider({ children }: { children: ReactNode }) {
     }
   }, [updateState]);
 
+  const persistProfileWithAvatar = useCallback(
+    async (
+      userId: string,
+      data: ProfileFormData,
+      existing: UserProfile | undefined,
+    ): Promise<FirestoreProfile> => {
+      const initialProfileImage = existing?.profileImage ?? null;
+      const initialAvatarUrl = existing?.avatarUrl ?? null;
+
+      const saved = await saveMyProfile(profileFormToApiPayload(data));
+
+      if (shouldUploadProfileAvatar(data.profileImage, initialProfileImage)) {
+        const blob = dataUrlToBlob(data.profileImage!);
+        const extension =
+          blob.type === "image/webp"
+            ? "webp"
+            : blob.type === "image/png"
+              ? "png"
+              : "jpg";
+        const file = new File([blob], `avatar.${extension}`, { type: blob.type });
+        return uploadProfileAvatar(file);
+      }
+
+      if (
+        shouldDeleteProfileAvatar(
+          data.profileImage,
+          initialProfileImage,
+          initialAvatarUrl,
+        )
+      ) {
+        return deleteProfileAvatar();
+      }
+
+      return saved;
+    },
+    [],
+  );
+
   const completeProfile = useCallback(
     async (
       userId: string,
       data: ProfileFormData,
     ): Promise<ProfileActionResult> => {
       try {
-        const saved = await saveMyProfile(profileFormToApiPayload(data));
+        const existing = state.users.find((user) => user.id === userId);
+        const saved = await persistProfileWithAvatar(userId, data, existing);
         updateState((prev) => ({
           ...prev,
           users: prev.users.map((user) =>
@@ -1044,15 +1087,19 @@ export function AppProvider({ children }: { children: ReactNode }) {
           ),
         }));
         setProfileLoadError(null);
+        const familyId = activeFamilyIdRef.current;
+        if (familyId) {
+          void refreshFamilyMembers(familyId, { force: true });
+        }
         return { success: true };
       } catch (error) {
-        if (error instanceof ProfileSaveError) {
+        if (error instanceof ProfileSaveError || error instanceof ProfileAvatarError) {
           return { success: false, error: error.message };
         }
         return { success: false, error: "プロフィールを保存できませんでした" };
       }
     },
-    [updateState],
+    [persistProfileWithAvatar, refreshFamilyMembers, state.users, updateState],
   );
 
   const updateProfile = useCallback(
@@ -1061,7 +1108,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
       data: ProfileFormData,
     ): Promise<ProfileActionResult> => {
       try {
-        const saved = await saveMyProfile(profileFormToApiPayload(data));
+        const existing = state.users.find((user) => user.id === userId);
+        const saved = await persistProfileWithAvatar(userId, data, existing);
         updateState((prev) => ({
           ...prev,
           users: prev.users.map((user) =>
@@ -1071,15 +1119,19 @@ export function AppProvider({ children }: { children: ReactNode }) {
           ),
         }));
         setProfileLoadError(null);
+        const familyId = activeFamilyIdRef.current;
+        if (familyId) {
+          void refreshFamilyMembers(familyId, { force: true });
+        }
         return { success: true };
       } catch (error) {
-        if (error instanceof ProfileSaveError) {
+        if (error instanceof ProfileSaveError || error instanceof ProfileAvatarError) {
           return { success: false, error: error.message };
         }
         return { success: false, error: "プロフィールを保存できませんでした" };
       }
     },
-    [updateState],
+    [persistProfileWithAvatar, refreshFamilyMembers, state.users, updateState],
   );
 
   const switchFamily = useCallback(
@@ -1528,9 +1580,12 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const isFamilyMemberFn = useCallback(
     (userId: string) => {
       if (!currentFamilyId) return false;
-      return activeFamilyMembers.some((member) => member.userId === userId);
+      if (activeFamilyMembers.some((member) => member.userId === userId)) {
+        return true;
+      }
+      return familyMembers.some((member) => member.id === userId);
     },
-    [activeFamilyMembers, currentFamilyId],
+    [activeFamilyMembers, currentFamilyId, familyMembers],
   );
 
   const getOtherFamilyMembersFn = useCallback(() => {

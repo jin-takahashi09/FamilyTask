@@ -175,3 +175,37 @@ export function getCalendarDotCount(incompleteCount: number): number {
   if (incompleteCount <= 0) return 0;
   return Math.min(incompleteCount, CALENDAR_MAX_DOTS);
 }
+
+export type CalendarMemberMark = {
+  userId: string;
+  incompleteCount: number;
+  allComplete: boolean;
+};
+
+export function getCalendarMemberDayMarks(
+  tasks: Task[],
+  dateKey: string,
+  userIds: string[],
+  currentUserId?: string,
+): CalendarMemberMark[] {
+  const marks: CalendarMemberMark[] = [];
+
+  for (const userId of userIds) {
+    const { status, incompleteCount } = getCalendarDayStatus(tasks, dateKey, {
+      userId,
+      assigneeOnly: Boolean(currentUserId) && userId === currentUserId,
+    });
+
+    if (status === "empty") {
+      continue;
+    }
+
+    marks.push({
+      userId,
+      incompleteCount,
+      allComplete: status === "allComplete",
+    });
+  }
+
+  return marks;
+}

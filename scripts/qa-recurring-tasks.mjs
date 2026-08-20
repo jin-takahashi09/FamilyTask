@@ -23,6 +23,7 @@ import {
   countIncompleteTasksForDate,
   getCalendarDayStatus,
   getCalendarDotCount,
+  getCalendarMemberDayMarks,
   matchesCalendarTask,
   toggleTaskCompleted,
 } from "../src/lib/task-utils.ts";
@@ -709,6 +710,19 @@ record(
 );
 record("10", "点は最大3個", getCalendarDotCount(10) === 3);
 record("10", "未完了3件は点3個", getCalendarDotCount(3) === 3);
+
+const memberMarks = getCalendarMemberDayMarks(
+  calendarTasks,
+  "2026-08-16",
+  ["u1", "u2"],
+  "u1",
+);
+record(
+  "10",
+  "複数メンバーの点を同時に返す",
+  memberMarks.some((mark) => mark.userId === "u1" && mark.incompleteCount > 0) &&
+    memberMarks.some((mark) => mark.userId === "u2" && mark.incompleteCount > 0),
+);
 
 const allDoneTasks = calendarTasks.map((task) =>
   task.assigneeId === "u1" ? { ...task, completed: true } : task,

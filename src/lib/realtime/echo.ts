@@ -94,7 +94,7 @@ async function createEchoInstance(): Promise<Echo<"pusher"> | null> {
   window.Pusher = Pusher;
 
   const scheme = process.env.NEXT_PUBLIC_REVERB_SCHEME ?? "http";
-  const port = Number(process.env.NEXT_PUBLIC_REVERB_PORT ?? "8080");
+  const port = Number(process.env.NEXT_PUBLIC_REVERB_PORT ?? "8087");
   const forceTLS = scheme === "https";
 
   echoInstance = new Echo({

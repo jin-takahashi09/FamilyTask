@@ -8,6 +8,7 @@ use App\Http\Requests\DeleteFamilyRequest;
 use App\Http\Requests\JoinFamilyRequest;
 use App\Http\Requests\TransferOwnershipRequest;
 use App\Services\FamilyService;
+use App\Services\ProfilePresenter;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
@@ -73,8 +74,12 @@ class FamilyController extends Controller
         ]);
     }
 
-    public function members(Request $request, string $familyId, FamilyService $families): JsonResponse
-    {
+    public function members(
+        Request $request,
+        string $familyId,
+        FamilyService $families,
+        ProfilePresenter $presenter,
+    ): JsonResponse {
         $uid = (string) $request->attributes->get('firebase_uid');
 
         try {
@@ -84,7 +89,10 @@ class FamilyController extends Controller
         }
 
         return response()->json([
-            'members' => array_map(static fn ($member) => $member->toArray(), $members),
+            'members' => array_map(
+                static fn ($member) => $presenter->presentMember($member),
+                $members,
+            ),
         ]);
     }
 

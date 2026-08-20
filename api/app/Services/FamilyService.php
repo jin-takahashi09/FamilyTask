@@ -5,7 +5,9 @@ namespace App\Services;
 use App\Data\FamilyData;
 use App\Data\FamilyMemberData;
 use App\Data\MembershipData;
+use App\Data\UserProfileData;
 use App\Exceptions\FamilyServiceException;
+use App\Exceptions\ProfileServiceException;
 use App\Sync\FamilySyncEventType;
 use Google\Cloud\Core\Timestamp;
 use Google\Cloud\Firestore\DocumentReference;
@@ -73,6 +75,8 @@ class FamilyService
             $familyRef = $client->collection(self::COLLECTION)->document($familyId);
             $membershipRef = $client->collection('memberships')->document($membershipId);
 
+            $avatarFields = $this->avatarFieldsForUser($userId);
+
             $client->runTransaction(function (Transaction $transaction) use (
                 $familyRef,
                 $membershipRef,
@@ -82,6 +86,7 @@ class FamilyService
                 $inviteCode,
                 $now,
                 $membershipId,
+                $avatarFields,
             ): void {
                 $familySnapshot = $transaction->snapshot($familyRef);
                 if ($familySnapshot->exists()) {
@@ -108,6 +113,8 @@ class FamilyService
                     'userId' => $userId,
                     'role' => 'owner',
                     'joinedAt' => $now,
+                    'avatarType' => $avatarFields['avatarType'],
+                    'avatarValue' => $avatarFields['avatarValue'],
                 ]);
             });
 
@@ -197,12 +204,16 @@ class FamilyService
                 throw new FamilyServiceException('このグループには既に参加しています', 409);
             }
 
+            $avatarFields = $this->avatarFieldsForUser($userId);
+
             $membershipRef->set([
                 'id' => $membershipId,
                 'familyId' => $family->id,
                 'userId' => $userId,
                 'role' => 'member',
                 'joinedAt' => $now,
+                'avatarType' => $avatarFields['avatarType'],
+                'avatarValue' => $avatarFields['avatarValue'],
             ]);
 
             $this->sync->dispatch($family->id, FamilySyncEventType::FamilyJoined, $now->get());
@@ -236,16 +247,19 @@ class FamilyService
             $profile = $this->profiles->findByUid($membership->userId);
             $displayName = $profile?->displayName ?? '';
             $email = $profile?->email ?? '';
+            [$avatarType, $avatarValue] = $this->resolveMemberAvatar($membership, $profile);
             $profileImage = null;
 
-            if ($profile !== null && $profile->avatarType === 'initials' && $profile->avatarValue !== '') {
-                $profileImage = $profile->avatarValue;
+            if ($avatarType === 'initials' && $avatarValue !== '') {
+                $profileImage = $avatarValue;
             }
 
             $members[] = new FamilyMemberData(
                 userId: $membership->userId,
                 displayName: $displayName,
                 email: $email,
+                avatarType: $avatarType,
+                avatarValue: $avatarValue,
                 profileImage: $profileImage,
                 role: $membership->role,
                 joinedAt: $membership->joinedAt,
@@ -560,5 +574,45 @@ class FamilyService
         $data = $snapshot->data() ?? [];
 
         return FamilyData::fromFirestore($snapshot->id(), $data);
+    }
+
+    /**
+     * @return array{avatarType: string, avatarValue: string}
+     */
+    private function avatarFieldsForUser(string $userId): array
+    {
+        try {
+            $profile = $this->profiles->findByUid($userId);
+        } catch (ProfileServiceException) {
+            $profile = null;
+        }
+
+        return [
+            'avatarType' => $profile?->avatarType ?? 'none',
+            'avatarValue' => $profile?->avatarValue ?? '',
+        ];
+    }
+
+    /**
+     * @return array{0: string, 1: string}
+     */
+    private function resolveMemberAvatar(MembershipData $membership, ?UserProfileData $profile): array
+    {
+        if ($profile !== null && $profile->avatarType === 'image' && $profile->avatarValue !== '') {
+            return [$profile->avatarType, $profile->avatarValue];
+        }
+
+        if ($membership->avatarType === 'image' && $membership->avatarValue !== '') {
+            return [$membership->avatarType, $membership->avatarValue];
+        }
+
+        if ($membership->avatarType !== 'none' || $membership->avatarValue !== '') {
+            return [$membership->avatarType, $membership->avatarValue];
+        }
+
+        return [
+            $profile?->avatarType ?? 'none',
+            $profile?->avatarValue ?? '',
+        ];
     }
 }

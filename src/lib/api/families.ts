@@ -17,6 +17,9 @@ export type ApiFamilyMember = {
   userId: string;
   displayName: string;
   email: string;
+  avatarType?: "none" | "initials" | "image";
+  avatarValue?: string;
+  avatarUrl?: string | null;
   profileImage: string | null;
   role: "owner" | "member";
   joinedAt: string;
@@ -89,7 +92,8 @@ export function apiMemberToUserProfile(member: ApiFamilyMember): UserProfile {
     id: member.userId,
     email: member.email,
     displayName: member.displayName,
-    profileImage: member.profileImage,
+    profileImage: member.avatarUrl ? null : member.profileImage,
+    avatarUrl: member.avatarUrl ?? null,
     profileCompleted: Boolean(member.displayName),
   };
 }

@@ -2,25 +2,127 @@
 
 import Link from "next/link";
 import { Settings2 } from "lucide-react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { useApp } from "@/context/AppProvider";
 import { UserAvatar } from "@/components/UserAvatar";
+import {
+  getMemberCalendarColor,
+  type MemberCalendarColor,
+} from "@/lib/member-calendar-colors";
 import { getShortUserLabel, getUserLabel } from "@/lib/user-utils";
 import type { UserProfile } from "@/lib/types";
 
+/** PCヘッダーに直接表示するメンバー数の上限 */
+const HEADER_VISIBLE_LIMIT = 5;
+
 type MemberSwitcherProps = {
-  selectedUserId: string;
+  selectedUserIds: string[];
   onSelectUser: (userId: string) => void;
+  variant?: "mobile" | "header";
 };
 
 export function MemberSwitcher({
-  selectedUserId,
+  selectedUserIds,
   onSelectUser,
+  variant = "mobile",
 }: MemberSwitcherProps) {
   const { currentUser, familyMembers } = useApp();
+  const [overflowOpen, setOverflowOpen] = useState(false);
+  const overflowRef = useRef<HTMLLIElement>(null);
+
+  useEffect(() => {
+    if (variant !== "header" || !overflowOpen) return;
+
+    const handlePointerDown = (event: MouseEvent | TouchEvent) => {
+      const target = event.target as Node;
+      if (overflowRef.current && !overflowRef.current.contains(target)) {
+        setOverflowOpen(false);
+      }
+    };
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setOverflowOpen(false);
+    };
+
+    document.addEventListener("mousedown", handlePointerDown);
+    document.addEventListener("touchstart", handlePointerDown);
+    document.addEventListener("keydown", handleKeyDown);
+    return () => {
+      document.removeEventListener("mousedown", handlePointerDown);
+      document.removeEventListener("touchstart", handlePointerDown);
+      document.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [variant, overflowOpen]);
 
   if (!currentUser) return null;
 
   const members = familyMembers.length > 0 ? familyMembers : [currentUser];
+
+  if (variant === "header") {
+    const visibleMembers = members.slice(0, HEADER_VISIBLE_LIMIT);
+    const overflowMembers = members.slice(HEADER_VISIBLE_LIMIT);
+    const overflowSelectedCount = overflowMembers.filter((user) =>
+      selectedUserIds.includes(user.id),
+    ).length;
+
+    return (
+      <section className="min-w-0 flex-1" aria-label="共有中のメンバー">
+        <ul
+          id="family-member-list"
+          className="flex flex-wrap items-center justify-end gap-1 px-2 lg:gap-1.5"
+        >
+          {visibleMembers.map((user) => (
+            <li key={user.id} className="shrink-0">
+              <MemberIconChip
+                user={user}
+                isSelected={selectedUserIds.includes(user.id)}
+                onSelect={() => onSelectUser(user.id)}
+                variant="header"
+              />
+            </li>
+          ))}
+
+          {overflowMembers.length > 0 && (
+            <li className="relative shrink-0" ref={overflowRef}>
+              <button
+                type="button"
+                onClick={() => setOverflowOpen((prev) => !prev)}
+                aria-expanded={overflowOpen}
+                aria-haspopup="listbox"
+                aria-label={`他${overflowMembers.length}人のメンバーを表示`}
+                className={`flex items-center gap-1 rounded-full border px-2.5 py-1.5 text-xs font-bold transition-colors ${
+                  overflowSelectedCount > 0
+                    ? "border-stone-300 bg-stone-50 text-slate-700"
+                    : "border-transparent bg-stone-100 text-slate-600 hover:bg-stone-200"
+                }`}
+              >
+                +{overflowMembers.length}人
+              </button>
+
+              {overflowOpen && (
+                <div
+                  className="absolute right-0 top-full z-50 mt-1.5 w-52 overflow-hidden rounded-xl border border-stone-200/90 bg-white shadow-lg"
+                  role="listbox"
+                  aria-label="その他のメンバー"
+                >
+                  <ul className="custom-scrollbar max-h-56 overflow-y-auto py-1">
+                    {overflowMembers.map((user) => (
+                      <OverflowMemberRow
+                        key={user.id}
+                        user={user}
+                        isSelected={selectedUserIds.includes(user.id)}
+                        onSelect={() => onSelectUser(user.id)}
+                      />
+                    ))}
+                  </ul>
+                </div>
+              )}
+            </li>
+          )}
+        </ul>
+      </section>
+    );
+  }
 
   return (
     <section className="md:hidden" aria-label="共有中のメンバー">
@@ -36,7 +138,7 @@ export function MemberSwitcher({
       </div>
 
       <p className="mb-2 text-[10px] leading-snug text-slate-400">
-        メンバーをタップすると、その人のカレンダーを表示できます
+        タップで表示、もう一度で非表示。複数人を同時に表示できます
       </p>
 
       <div className="-mx-3 overflow-x-auto overscroll-x-contain px-3 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
@@ -45,7 +147,7 @@ export function MemberSwitcher({
             <li key={user.id} className="shrink-0">
               <MemberIconChip
                 user={user}
-                isSelected={user.id === selectedUserId}
+                isSelected={selectedUserIds.includes(user.id)}
                 onSelect={() => onSelectUser(user.id)}
               />
             </li>
@@ -56,7 +158,30 @@ export function MemberSwitcher({
   );
 }
 
-function MemberIconChip({
+/** メンバー色の細いリング（2px）— getMemberCalendarColor の ring / dot と一致 */
+function MemberColorRing({
+  userId,
+  isSelected,
+  children,
+}: {
+  userId: string;
+  isSelected: boolean;
+  children: ReactNode;
+}) {
+  const color = getMemberCalendarColor(userId);
+
+  return (
+    <div
+      className={`shrink-0 rounded-full p-[2px] ${
+        isSelected ? color.ring : "bg-stone-200/80"
+      }`}
+    >
+      {children}
+    </div>
+  );
+}
+
+function OverflowMemberRow({
   user,
   isSelected,
   onSelect,
@@ -65,38 +190,95 @@ function MemberIconChip({
   isSelected: boolean;
   onSelect: () => void;
 }) {
+  const color = getMemberCalendarColor(user.id);
+
+  return (
+    <li role="option" aria-selected={isSelected}>
+      <button
+        type="button"
+        onClick={onSelect}
+        className={`flex w-full items-center gap-2.5 px-3 py-2 text-left transition-colors hover:bg-stone-50 ${
+          isSelected ? memberSelectedSurface(color) : ""
+        }`}
+      >
+        <MemberColorRing userId={user.id} isSelected={isSelected}>
+          <UserAvatar user={user} size="sm" className="!h-9 !w-9 !text-xs" />
+        </MemberColorRing>
+        <span
+          className={`min-w-0 flex-1 truncate text-sm ${
+            isSelected ? `font-bold ${color.text}` : "font-medium text-slate-700"
+          }`}
+        >
+          {getUserLabel(user)}
+        </span>
+      </button>
+    </li>
+  );
+}
+
+function memberSelectedSurface(color: MemberCalendarColor): string {
+  return color.border;
+}
+
+function MemberIconChip({
+  user,
+  isSelected,
+  onSelect,
+  variant = "mobile",
+}: {
+  user: UserProfile;
+  isSelected: boolean;
+  onSelect: () => void;
+  variant?: "mobile" | "header";
+}) {
   const label = getShortUserLabel(user, 8);
+  const color = getMemberCalendarColor(user.id);
+
+  if (variant === "header") {
+    return (
+      <button
+        type="button"
+        onClick={onSelect}
+        aria-pressed={isSelected}
+        aria-label={`${getUserLabel(user)}のカレンダーを${isSelected ? "非表示" : "表示"}`}
+        className={`flex items-center gap-2 rounded-full border px-2 py-1.5 transition-colors ${
+          isSelected
+            ? memberSelectedSurface(color)
+            : "border-transparent hover:bg-stone-100"
+        }`}
+      >
+        <MemberColorRing userId={user.id} isSelected={isSelected}>
+          <UserAvatar user={user} size="sm" className="!h-9 !w-9 !text-xs" />
+        </MemberColorRing>
+        <span
+          className={`max-w-[5rem] truncate text-sm ${
+            isSelected ? `font-bold ${color.text}` : "font-medium text-slate-600"
+          }`}
+        >
+          {label}
+        </span>
+      </button>
+    );
+  }
 
   return (
     <button
       type="button"
       onClick={onSelect}
       aria-pressed={isSelected}
-      aria-label={`${getUserLabel(user)}のカレンダーを表示`}
+      aria-label={`${getUserLabel(user)}のカレンダーを${isSelected ? "非表示" : "表示"}`}
       className="flex w-[3.5rem] flex-col items-center gap-1.5 active:opacity-80"
     >
-      <div
-        className={`rounded-full p-[2.5px] transition-all ${
-          isSelected
-            ? "bg-gradient-to-tr from-amber-400 to-orange-400 shadow-sm"
-            : "bg-slate-200/70"
-        }`}
-      >
+      <MemberColorRing userId={user.id} isSelected={isSelected}>
         <UserAvatar user={user} size="md" className="!h-11 !w-11 !text-sm" />
-      </div>
+      </MemberColorRing>
       <span
         className={`block w-full text-center text-[10px] leading-tight ${
-          isSelected ? "font-bold text-slate-800" : "font-medium text-slate-500"
+          isSelected ? `font-bold ${color.text}` : "font-medium text-slate-500"
         }`}
       >
         {label}
       </span>
-      {isSelected && (
-        <span
-          className="h-0.5 w-5 rounded-full bg-amber-500"
-          aria-hidden
-        />
-      )}
     </button>
   );
 }

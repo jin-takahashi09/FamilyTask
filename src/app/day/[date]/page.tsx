@@ -12,6 +12,11 @@ import { useApp } from "@/context/AppProvider";
 import { formatDayLabel, parseDateKey } from "@/lib/date-utils";
 import { isTaskForUser } from "@/lib/task-utils";
 import { getUserLabel } from "@/lib/user-utils";
+import { SelectedMembersDisplay } from "@/components/MemberColorLabel";
+import {
+  homeHrefForSelection,
+  parseSelectedUserIds,
+} from "@/lib/member-selection";
 
 type DayPageProps = {
   params: Promise<{ date: string }>;
@@ -33,35 +38,52 @@ function DayPageContent({ dateKey }: { dateKey: string }) {
   } = useApp();
   const router = useRouter();
   const searchParams = useSearchParams();
+  const usersParam = searchParams.get("users");
   const userId = searchParams.get("user");
   const mineOnly = searchParams.get("mine") === "1";
   const date = parseDateKey(dateKey);
   const [undoNotice, setUndoNotice] = useState<UndoNotice | null>(null);
 
-  const user = userId ? getUserById(userId) : undefined;
-  const viewedUserId = userId ?? currentUser?.id ?? "";
-  const isOwnCalendar = viewedUserId === currentUser?.id;
+  const selectedUserIds = parseSelectedUserIds(
+    usersParam,
+    userId,
+    currentUser?.id ?? "",
+    isFamilyMember,
+  );
+  const isSelfIncluded = Boolean(
+    currentUser && selectedUserIds.includes(currentUser.id),
+  );
+  const selectedUsers = selectedUserIds
+    .map((id) => getUserById(id))
+    .filter((entry): entry is NonNullable<typeof entry> => Boolean(entry));
+  const user = selectedUsers[0];
 
   useEffect(() => {
-    if (userId && userId !== currentUser?.id && user && !isFamilyMember(userId)) {
+    const invalid = selectedUserIds.find(
+      (id) => id !== currentUser?.id && !isFamilyMember(id),
+    );
+    if (invalid) {
       router.replace("/");
     }
-  }, [userId, user, currentUser, isFamilyMember, router]);
+  }, [selectedUserIds, currentUser, isFamilyMember, router]);
 
   const tasks = getTasksByDate(dateKey).filter((task) => {
-    if (!userId) return true;
-    if (mineOnly) return task.assigneeId === userId;
-    return isTaskForUser(task, userId);
+    if (selectedUserIds.length === 0) return false;
+    if (mineOnly && userId) return task.assigneeId === userId;
+    return selectedUserIds.some((id) =>
+      id === currentUser?.id ? task.assigneeId === id : isTaskForUser(task, id),
+    );
   });
 
-  if (userId && userId !== currentUser?.id && user && !isFamilyMember(userId)) {
+  if (
+    selectedUserIds.some((id) => id !== currentUser?.id && !isFamilyMember(id))
+  ) {
     return null;
   }
 
-  const backHref =
-    !userId || isOwnCalendar
-      ? "/"
-      : `/?user=${encodeURIComponent(userId)}`;
+  const backHref = currentUser
+    ? homeHrefForSelection(selectedUserIds, currentUser.id)
+    : "/";
 
   return (
     <>
@@ -73,24 +95,17 @@ function DayPageContent({ dateKey }: { dateKey: string }) {
         >
           <ArrowLeft className="h-4 w-4" />
         </Link>
-        <div className="flex min-w-0 flex-1 flex-wrap items-baseline gap-x-2 gap-y-0.5">
+        <div className="flex min-w-0 flex-1 flex-col gap-1">
           <h2 className="text-xl font-extrabold tracking-tight text-slate-800 sm:text-2xl">
             {formatDayLabel(date)}
           </h2>
-          {user && (
-            <>
-              <span className="text-sm font-bold text-slate-300">·</span>
-              <p className="truncate text-sm font-bold text-slate-600">
-                {isOwnCalendar
-                  ? "自分のカレンダー"
-                  : `${getUserLabel(user)} のカレンダー`}
-              </p>
-            </>
+          {selectedUsers.length > 0 && (
+            <SelectedMembersDisplay members={selectedUsers} prefix={null} />
           )}
         </div>
       </div>
 
-      {isOwnCalendar && (
+      {isSelfIncluded && (
         <TaskForm
           dateKey={dateKey}
           defaultAssigneeId={mineOnly ? userId ?? undefined : undefined}
@@ -102,13 +117,15 @@ function DayPageContent({ dateKey }: { dateKey: string }) {
         tasks={tasks}
         title="この日のタスク"
         showSort
-        showAddHint={isOwnCalendar}
+        showAddHint={isSelfIncluded}
         emptyMessage={
-          user
-            ? mineOnly
-              ? `${getUserLabel(user)} が担当するタスクはまだありません`
-              : `${getUserLabel(user)} に関係するタスクはまだありません`
-            : "この日のタスクはまだありません"
+          selectedUsers.length > 1
+            ? "選択中のメンバーに関係するタスクはまだありません"
+            : user
+              ? mineOnly
+                ? `${getUserLabel(user)} が担当するタスクはまだありません`
+                : `${getUserLabel(user)} に関係するタスクはまだありません`
+              : "この日のタスクはまだありません"
         }
       />
 

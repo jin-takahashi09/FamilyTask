@@ -10,6 +10,8 @@ readonly class MembershipData
         public string $userId,
         public string $role,
         public string $joinedAt,
+        public string $avatarType = 'none',
+        public string $avatarValue = '',
     ) {}
 
     /**
@@ -23,6 +25,8 @@ readonly class MembershipData
             userId: (string) ($data['userId'] ?? ''),
             role: (string) ($data['role'] ?? 'member'),
             joinedAt: FirestoreTimestamps::toIso8601($data['joinedAt'] ?? null),
+            avatarType: (string) ($data['avatarType'] ?? 'none'),
+            avatarValue: (string) ($data['avatarValue'] ?? ''),
         );
     }
 
@@ -37,6 +41,8 @@ readonly class MembershipData
             'userId' => $this->userId,
             'role' => $this->role,
             'joinedAt' => $this->joinedAt,
+            'avatarType' => $this->avatarType,
+            'avatarValue' => $this->avatarValue,
         ];
     }
 }
