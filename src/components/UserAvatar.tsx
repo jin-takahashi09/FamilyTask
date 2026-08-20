@@ -1,11 +1,11 @@
 "use client";
 
-import Image from "next/image";
+import { resolveProfileAvatarSrc } from "@/lib/profile-utils";
 import { getUserInitials } from "@/lib/user-utils";
 import type { UserProfile } from "@/lib/types";
 
 type UserAvatarProps = {
-  user: Pick<UserProfile, "displayName" | "profileImage">;
+  user: Pick<UserProfile, "displayName" | "profileImage" | "avatarUrl">;
   size?: "sm" | "md" | "lg" | "xl";
   className?: string;
 };
@@ -19,20 +19,16 @@ const sizeMap = {
 
 export function UserAvatar({ user, size = "md", className = "" }: UserAvatarProps) {
   const sizeClass = sizeMap[size];
+  const imageSrc = resolveProfileAvatarSrc(user);
 
-  if (user.profileImage) {
+  if (imageSrc) {
     return (
-      <div
-        className={`relative shrink-0 overflow-hidden rounded-full bg-amber-100 ${sizeClass} ${className}`}
-      >
-        <Image
-          src={user.profileImage}
-          alt={user.displayName || "プロフィール"}
-          fill
-          className="object-cover"
-          unoptimized
-        />
-      </div>
+      // Signed Storage URLs and data URLs fail with next/image; use a plain img.
+      <img
+        src={imageSrc}
+        alt={user.displayName || "プロフィール"}
+        className={`shrink-0 rounded-full object-cover ${sizeClass} ${className}`}
+      />
     );
   }
 

@@ -39,6 +39,7 @@ function migrateLegacyUser(
     email: legacy.email ?? "",
     displayName: legacy.name ?? "",
     profileImage: null,
+    avatarUrl: null,
     profileCompleted: Boolean(legacy.name && legacy.name !== "ユーザー"),
   };
 }
@@ -50,6 +51,7 @@ export function migrateState(raw: LegacyState): AppState {
         email: u.email,
         displayName: u.displayName ?? "",
         profileImage: u.profileImage ?? null,
+        avatarUrl: u.avatarUrl ?? null,
         profileCompleted: Boolean(u.profileCompleted),
       }))
     : [];

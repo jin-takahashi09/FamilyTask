@@ -2,7 +2,10 @@ export type UserProfile = {
   id: string;
   email: string;
   displayName: string;
+  /** Local-only data URL fallback (legacy / same-device). */
   profileImage: string | null;
+  /** Signed URL from API when avatar is stored in Firebase Storage. */
+  avatarUrl: string | null;
   profileCompleted: boolean;
 };
 

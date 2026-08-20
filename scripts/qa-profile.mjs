@@ -6,7 +6,9 @@ import {
   mergeFirestoreProfile,
   profileFormToApiPayload,
   resolveLocalProfileImage,
+  resolveProfileAvatarSrc,
   withLocalProfileImage,
+  profileFormInitialImage,
 } from "../src/lib/profile-utils.ts";
 import {
   isProfileImageWithinSizeLimit,
@@ -52,6 +54,7 @@ const user = mergeFirestoreProfile(
       email: "a@example.com",
       displayName: "旧名",
       profileImage: "data:image/png;base64,local",
+      avatarUrl: null,
       profileCompleted: false,
     },
   ],
@@ -79,6 +82,7 @@ const saved = applySavedProfile(
     email: "a@example.com",
     displayName: "",
     profileImage: null,
+    avatarUrl: null,
     profileCompleted: false,
   },
   {
@@ -218,6 +222,59 @@ record(
     { ...apiMember, id: "uid-2" },
     [{ ...apiMember, id: "uid-1", profileImage: "data:image/webp;base64,x" }],
   ).profileImage === null,
+);
+record(
+  "APIにavatarUrlなしなら自分の保存済みURLを使う",
+  withLocalProfileImage(
+    { ...apiMember, avatarUrl: null },
+    [
+      {
+        ...apiMember,
+        avatarUrl: "https://storage.example/self.webp",
+        profileImage: null,
+      },
+    ],
+  ).avatarUrl === "https://storage.example/self.webp",
+);
+
+console.log("\n## 10. avatarUrl優先表示");
+record(
+  "avatarUrlを最優先",
+  resolveProfileAvatarSrc({
+    avatarUrl: "https://storage.example/a.webp",
+    profileImage: "data:image/png;base64,local",
+  }) === "https://storage.example/a.webp",
+);
+record(
+  "avatarUrlなしならlocal",
+  resolveProfileAvatarSrc({
+    avatarUrl: null,
+    profileImage: "data:image/png;base64,local",
+  }) === "data:image/png;base64,local",
+);
+record(
+  "Storage profileはavatarUrlを反映",
+  mergeFirestoreProfile(
+    { uid: "uid-3", email: "c@example.com" },
+    {
+      uid: "uid-3",
+      email: "c@example.com",
+      displayName: "ユーザーC",
+      avatarType: "image",
+      avatarValue: "profile-images/uid-3/avatar.webp",
+      avatarUrl: "https://storage.example/c.webp",
+      createdAt: "2026-01-01T00:00:00+00:00",
+      updatedAt: "2026-01-01T00:00:00+00:00",
+    },
+    [],
+  ).avatarUrl === "https://storage.example/c.webp",
+);
+record(
+  "フォーム初期値にavatarUrlを使用",
+  profileFormInitialImage({
+    profileImage: null,
+    avatarUrl: "https://storage.example/init.webp",
+  }) === "https://storage.example/init.webp",
 );
 
 const failed = results.filter((r) => !r.pass);

@@ -7,6 +7,7 @@ import { ArrowLeft } from "lucide-react";
 import { AuthGuard } from "@/components/AuthGuard";
 import { ProfileForm } from "@/components/ProfileForm";
 import { useApp } from "@/context/AppProvider";
+import { profileFormInitialImage } from "@/lib/profile-utils";
 
 function ProfileEditContent() {
   const { currentUser, updateProfile } = useApp();
@@ -41,7 +42,7 @@ function ProfileEditContent() {
         <ProfileForm
           initial={{
             displayName: currentUser.displayName,
-            profileImage: currentUser.profileImage,
+            profileImage: profileFormInitialImage(currentUser),
           }}
           submitLabel="変更を保存"
           onCancel={() => router.push("/")}

@@ -32,14 +32,41 @@ export function resolveLocalProfileImage(
   return null;
 }
 
-/** Prefer profileImage stored locally (localStorage) when API has none. */
+/** Prefer API avatarUrl, then the current user's saved avatarUrl, then local data URLs. */
 export function withLocalProfileImage(
   user: UserProfile,
   existingUsers: UserProfile[],
 ): UserProfile {
+  if (user.avatarUrl) {
+    return user;
+  }
+
+  const existing = existingUsers.find((entry) => entry.id === user.id);
+  if (existing?.avatarUrl) {
+    return {
+      ...user,
+      avatarUrl: existing.avatarUrl,
+      profileImage: null,
+    };
+  }
+
   const localImage = resolveLocalProfileImage(user.id, existingUsers);
   if (!localImage) return user;
   return { ...user, profileImage: localImage };
+}
+
+export function resolveProfileAvatarSrc(
+  user: Pick<UserProfile, "avatarUrl" | "profileImage">,
+): string | null {
+  if (user.avatarUrl) {
+    return user.avatarUrl;
+  }
+
+  if (user.profileImage?.startsWith("data:image/")) {
+    return user.profileImage;
+  }
+
+  return null;
 }
 
 export type ProfileFetchStatus = "loaded" | "missing" | "unavailable";
@@ -51,9 +78,9 @@ export function mergeFirestoreProfile(
   fetchStatus: ProfileFetchStatus = firestoreProfile ? "loaded" : "missing",
 ): UserProfile {
   const localImage = resolveLocalProfileImage(verified.uid, existingUsers);
+  const existing = existingUsers.find((user) => user.id === verified.uid);
 
   if (!firestoreProfile) {
-    const existing = existingUsers.find((user) => user.id === verified.uid);
     const hasLocalProfile = Boolean(
       existing?.profileCompleted && existing.displayName.trim(),
     );
@@ -63,6 +90,7 @@ export function mergeFirestoreProfile(
       email: verified.email ?? existing?.email ?? "",
       displayName: existing?.displayName ?? "",
       profileImage: localImage,
+      avatarUrl: existing?.avatarUrl ?? null,
       profileCompleted:
         fetchStatus === "unavailable" && hasLocalProfile
           ? true
@@ -74,7 +102,8 @@ export function mergeFirestoreProfile(
     id: firestoreProfile.uid,
     email: firestoreProfile.email || verified.email || "",
     displayName: firestoreProfile.displayName,
-    profileImage: localImage,
+    profileImage: firestoreProfile.avatarUrl ? null : localImage,
+    avatarUrl: firestoreProfile.avatarUrl ?? null,
     profileCompleted: true,
   };
 }
@@ -85,12 +114,59 @@ export function applySavedProfile(
   saved: FirestoreProfile,
   markCompleted: boolean,
 ): UserProfile {
+  const uploadedToStorage = saved.avatarType === "image" && Boolean(saved.avatarUrl);
+
   return {
     ...user,
     id: saved.uid,
     email: saved.email,
     displayName: saved.displayName,
-    profileImage: data.profileImage,
+    avatarUrl: saved.avatarUrl ?? null,
+    profileImage: uploadedToStorage
+      ? null
+      : data.profileImage?.startsWith("data:image/")
+        ? data.profileImage
+        : user.profileImage,
     profileCompleted: markCompleted ? true : user.profileCompleted,
   };
+}
+
+export function profileFromFirestore(saved: FirestoreProfile): UserProfile {
+  return {
+    id: saved.uid,
+    email: saved.email,
+    displayName: saved.displayName,
+    profileImage: null,
+    avatarUrl: saved.avatarUrl ?? null,
+    profileCompleted: true,
+  };
+}
+
+export function shouldUploadProfileAvatar(
+  profileImage: string | null,
+  initialProfileImage: string | null,
+): boolean {
+  return (
+    profileImage !== null &&
+    profileImage.startsWith("data:image/") &&
+    profileImage !== initialProfileImage
+  );
+}
+
+export function shouldDeleteProfileAvatar(
+  profileImage: string | null,
+  initialProfileImage: string | null,
+  initialAvatarUrl: string | null,
+): boolean {
+  return (
+    profileImage === null &&
+    (Boolean(initialAvatarUrl) ||
+      (initialProfileImage?.startsWith("data:image/") ?? false))
+  );
+}
+
+export function profileFormInitialImage(
+  user: Pick<UserProfile, "profileImage" | "avatarUrl">,
+): string | null {
+  return user.profileImage ?? user.avatarUrl ?? null;
 }

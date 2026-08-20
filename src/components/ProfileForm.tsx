@@ -40,7 +40,11 @@ export function ProfileForm({
 
   const previewUser = {
     displayName,
-    profileImage,
+    profileImage: profileImage?.startsWith("data:image/") ? profileImage : null,
+    avatarUrl:
+      profileImage?.startsWith("http://") || profileImage?.startsWith("https://")
+        ? profileImage
+        : null,
   };
 
   const handleImageChange = async (e: React.ChangeEvent<HTMLInputElement>) => {

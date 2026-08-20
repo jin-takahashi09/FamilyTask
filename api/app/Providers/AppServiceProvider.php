@@ -4,7 +4,9 @@ namespace App\Providers;
 
 use App\Services\FamilySyncBroadcaster;
 use App\Services\FirebaseAuthService;
+use App\Services\FirebaseStorageService;
 use App\Services\FirestoreService;
+use App\Services\ProfilePresenter;
 use App\Services\UserProfileService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Broadcast;
@@ -19,6 +21,8 @@ class AppServiceProvider extends ServiceProvider
     {
         $this->app->singleton(FirestoreService::class);
         $this->app->singleton(FirebaseAuthService::class);
+        $this->app->singleton(FirebaseStorageService::class);
+        $this->app->singleton(ProfilePresenter::class);
         $this->app->singleton(UserProfileService::class);
         $this->app->singleton(FamilySyncBroadcaster::class);
     }

@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { AuthGuard } from "@/components/AuthGuard";
 import { ProfileForm } from "@/components/ProfileForm";
 import { useApp } from "@/context/AppProvider";
+import { profileFormInitialImage } from "@/lib/profile-utils";
 
 function ProfileSetupContent() {
   const { currentUser, completeProfile, hasFamily, isReady, sessionInitializing } = useApp();
@@ -52,7 +53,7 @@ function ProfileSetupContent() {
         <ProfileForm
           initial={{
             displayName: currentUser.displayName,
-            profileImage: currentUser.profileImage,
+            profileImage: profileFormInitialImage(currentUser),
           }}
           submitLabel="設定を完了する"
           onSubmit={async (data) => {

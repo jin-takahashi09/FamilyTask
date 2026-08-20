@@ -22,6 +22,8 @@ Route::middleware('firebase.auth')->group(function () {
     Route::get('/auth/me', AuthMeController::class);
     Route::get('/profile', [ProfileController::class, 'show']);
     Route::put('/profile', [ProfileController::class, 'upsert']);
+    Route::post('/profile/avatar', [ProfileController::class, 'uploadAvatar']);
+    Route::delete('/profile/avatar', [ProfileController::class, 'deleteAvatar']);
 
     Route::get('/families', [FamilyController::class, 'index']);
     Route::post('/families', [FamilyController::class, 'store']);
