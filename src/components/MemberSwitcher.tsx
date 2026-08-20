@@ -125,24 +125,24 @@ export function MemberSwitcher({
   }
 
   return (
-    <section className="md:hidden" aria-label="共有中のメンバー">
-      <div className="mb-1 flex items-center gap-0.5">
+    <section className="lg:hidden" aria-label="共有中のメンバー">
+      <div className="mb-1.5 flex items-center gap-0.5">
         <h2 className="text-xs font-bold text-slate-700">共有中のメンバー</h2>
         <Link
           href="/family"
-          className="flex h-7 w-7 items-center justify-center rounded-full text-slate-400 transition-colors active:bg-slate-100 active:text-slate-600"
+          className="flex h-7 w-7 items-center justify-center rounded-full text-[#a8927a] transition-colors active:bg-[#fff5eb] active:text-slate-600"
           aria-label="家族グループ管理"
         >
           <Settings2 className="h-3.5 w-3.5" />
         </Link>
       </div>
 
-      <p className="mb-2 text-[10px] leading-snug text-slate-400">
+      <p className="mb-2 text-[10px] leading-snug text-[#a8927a]">
         タップで表示、もう一度で非表示。複数人を同時に表示できます
       </p>
 
-      <div className="-mx-3 overflow-x-auto overscroll-x-contain px-3 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-        <ul className="flex flex-nowrap items-start gap-4 pr-6">
+      <div className="-mx-3 overflow-x-auto overscroll-x-contain px-3 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden md:mx-0 md:overflow-visible md:px-0">
+        <ul className="flex flex-nowrap items-start gap-3 pr-6 md:flex-wrap md:gap-3 md:pr-0">
           {members.map((user) => (
             <li key={user.id} className="shrink-0">
               <MemberIconChip
@@ -173,7 +173,7 @@ function MemberColorRing({
   return (
     <div
       className={`shrink-0 rounded-full p-[2px] ${
-        isSelected ? color.ring : "bg-stone-200/80"
+        isSelected ? color.ring : "bg-[#e8dfd2]"
       }`}
     >
       {children}
@@ -244,7 +244,7 @@ function MemberIconChip({
         className={`flex items-center gap-2 rounded-full border px-2 py-1.5 transition-colors ${
           isSelected
             ? memberSelectedSurface(color)
-            : "border-transparent hover:bg-stone-100"
+            : "border-transparent hover:bg-[#fff5eb]"
         }`}
       >
         <MemberColorRing userId={user.id} isSelected={isSelected}>
@@ -267,14 +267,24 @@ function MemberIconChip({
       onClick={onSelect}
       aria-pressed={isSelected}
       aria-label={`${getUserLabel(user)}のカレンダーを${isSelected ? "非表示" : "表示"}`}
-      className="flex w-[3.5rem] flex-col items-center gap-1.5 active:opacity-80"
+      className={`flex w-[3.75rem] flex-col items-center gap-1 rounded-xl px-1 py-1 transition-colors active:bg-[#fff5eb] md:w-auto md:min-w-0 md:flex-row md:gap-2 md:rounded-full md:border md:px-2.5 md:py-1.5 ${
+        isSelected
+          ? `${memberSelectedSurface(color)} bg-[#fff8f0]`
+          : "border-transparent md:hover:bg-[#fff5eb]"
+      }`}
     >
       <MemberColorRing userId={user.id} isSelected={isSelected}>
-        <UserAvatar user={user} size="md" className="!h-11 !w-11 !text-sm" />
+        <UserAvatar
+          user={user}
+          size="md"
+          className="!h-10 !w-10 !text-sm md:!h-9 md:!w-9 md:!text-xs"
+        />
       </MemberColorRing>
       <span
-        className={`block w-full text-center text-[10px] leading-tight ${
-          isSelected ? `font-bold ${color.text}` : "font-medium text-slate-500"
+        className={`block w-full text-center text-[10px] leading-tight md:max-w-[5rem] md:truncate md:text-left md:text-sm ${
+          isSelected
+            ? `font-bold ${color.text}`
+            : "font-medium text-[#9a8b7a] md:text-slate-600"
         }`}
       >
         {label}

@@ -226,47 +226,50 @@ export function MyTodayTasks({
 
   return (
     <section
-      className={`overflow-hidden bg-white ${
+      className={`overflow-hidden bg-[#fffcf8] ${
         panel
-          ? "flex h-full min-h-0 min-w-0 flex-col rounded-2xl border border-amber-100 max-md:shadow-sm"
+          ? "flex h-full min-h-0 min-w-0 flex-col rounded-xl border border-[#eadfce]/80"
           : compactMobile
-            ? "rounded-2xl border border-amber-300/60 shadow-sm"
+            ? "rounded-xl border border-[#eadfce]/80"
             : "rounded-3xl border border-amber-300/60 shadow-md shadow-amber-200/50"
       } ${fill ? "flex h-full min-h-0 min-w-0 flex-col" : ""}`}
     >
       <div
         className={`flex shrink-0 items-center justify-between ${
           panel
-            ? "border-b border-amber-100 bg-amber-50/80 px-3 py-2.5"
+            ? "border-b border-[#eadfce]/80 bg-[#fff5eb]/70 px-3 py-2.5"
             : compactMobile
-              ? "bg-gradient-to-r from-amber-200 via-amber-300 to-amber-200 px-4 py-2.5"
+              ? "border-b border-[#eadfce]/80 bg-[#fff5eb]/70 px-4 py-2.5"
               : fill
                 ? "bg-gradient-to-r from-amber-200 via-amber-300 to-amber-200 px-4 py-2.5"
                 : "bg-gradient-to-r from-amber-200 via-amber-300 to-amber-200 px-5 py-3.5 sm:px-6 sm:py-4"
         }`}
       >
         <div className="flex items-center gap-2">
-          <span
-            className={
-              panel || compactMobile ? "text-base" : "text-xl sm:text-2xl"
-            }
-          >
-            ⭐
-          </span>
-          <h2
-            className={`font-extrabold tracking-wide text-amber-900 ${
-              panel || compactMobile ? "text-sm" : "text-base sm:text-lg"
-            }`}
-          >
-            今日のタスク
-          </h2>
+          {(panel || compactMobile) ? null : (
+            <span className="text-xl sm:text-2xl">⭐</span>
+          )}
+          <div>
+            {(panel || compactMobile) && (
+              <p className="text-[10px] font-bold text-amber-700">今日</p>
+            )}
+            <h2
+              className={`font-extrabold tracking-wide ${
+                panel || compactMobile
+                  ? "text-sm text-slate-800"
+                  : "text-base text-amber-900 sm:text-lg"
+              }`}
+            >
+              今日のタスク
+            </h2>
+          </div>
         </div>
         {todayTasks.length > 0 && (
           <span
-            className={`rounded-full bg-rose-500 font-bold text-white ${
+            className={`rounded-full font-bold ${
               panel || compactMobile
-                ? "px-2 py-0.5 text-[10px]"
-                : "px-3 py-1 text-xs shadow-sm"
+                ? "bg-amber-100 px-2 py-0.5 text-[10px] text-amber-800"
+                : "bg-rose-500 px-3 py-1 text-xs text-white shadow-sm"
             }`}
           >
             {todayTasks.length} 件
@@ -275,7 +278,7 @@ export function MyTodayTasks({
       </div>
 
       <div
-        className={`${panel ? "p-2.5" : compactMobile ? "p-3" : "p-3 sm:p-4"} ${fill ? "min-h-0 flex-1 overflow-y-auto custom-scrollbar" : ""}`}
+        className={`${panel ? "p-2.5" : compactMobile ? "p-3 md:p-4" : "p-3 sm:p-4"} ${fill ? "min-h-0 flex-1 overflow-y-auto custom-scrollbar" : ""}`}
       >
         <TaskList
           tasks={todayTasks}

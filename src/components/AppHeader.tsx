@@ -39,10 +39,10 @@ export function AppHeader({
     <header
       className={
         board
-          ? "shrink-0 border-b border-stone-200/80 bg-[#fffdfb] px-4 py-2.5 lg:px-5"
-          : `rounded-3xl border border-amber-100 bg-white/95 shadow-sm backdrop-blur-md ${
-              compact ? "mb-2 p-2.5 sm:px-4 sm:py-2.5" : "mb-5 p-3 sm:p-4 sm:px-6"
-            }`
+          ? "shrink-0 border-b border-[#eadfce]/80 bg-[#fffdfb] px-4 py-2.5 lg:px-5"
+          : compact
+            ? "mb-2 border-b border-[#eadfce]/70 bg-[#fffdfb] px-1 py-2.5 sm:px-2"
+            : "mb-5 rounded-3xl border border-amber-100 bg-white/95 p-3 shadow-sm backdrop-blur-md sm:p-4 sm:px-6"
       }
     >
       <div className="flex items-center gap-2 sm:gap-3">
@@ -50,7 +50,7 @@ export function AppHeader({
           <Link
             href="/"
             className={`flex shrink-0 items-center justify-center rounded-2xl bg-gradient-to-tr from-amber-400 to-orange-400 text-xl ${
-              board
+              board || compact
                 ? "h-9 w-9 text-lg shadow-none"
                 : "h-10 w-10 shadow-md shadow-amber-200 sm:h-12 sm:w-12 sm:text-2xl"
             }`}
@@ -60,7 +60,9 @@ export function AppHeader({
           <Link href="/" className="min-w-0 truncate">
             <h1
               className={`truncate font-bold tracking-wide text-slate-800 ${
-                board ? "text-base lg:text-lg" : "text-sm sm:text-xl lg:text-2xl"
+                board || compact
+                  ? "text-base lg:text-lg"
+                  : "text-sm sm:text-xl lg:text-2xl"
               }`}
             >
               {title}
@@ -82,7 +84,7 @@ export function AppHeader({
 
         <div
           className={`flex shrink-0 items-center ${
-            board ? "ml-3 gap-0 border-l border-stone-200/80 pl-4" : "gap-1.5 sm:gap-2"
+            board ? "ml-3 gap-0 border-l border-[#eadfce]/80 pl-4" : "gap-1.5 sm:gap-2"
           }`}
         >
           {isAuthenticated && currentUser ? (
