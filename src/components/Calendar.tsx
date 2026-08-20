@@ -34,13 +34,6 @@ type CalendarProps = {
   compact?: boolean;
   hideUserBanner?: boolean;
   board?: boolean;
-  /** 月間カレンダー上で強調する日（親から渡された場合のみ） */
-  selectedDateKey?: string;
-  /**
-   * 指定時は日付タップでページ遷移せずコールバックする（スマホ用）。
-   * 未指定時は従来どおり /day/[date] へ遷移（PC維持）。
-   */
-  onSelectDate?: (dateKey: string) => void;
 };
 
 export function Calendar({
@@ -54,8 +47,6 @@ export function Calendar({
   compact = false,
   hideUserBanner = false,
   board = false,
-  selectedDateKey,
-  onSelectDate,
 }: CalendarProps) {
   const { familyTasks, getUserById } = useApp();
   const days = getCalendarDays(currentMonth);
@@ -261,7 +252,6 @@ export function Calendar({
             : marks.length
               ? "allComplete"
               : "empty";
-          const isFocusedDay = selectedDateKey === dateKey;
           const totalCount = selectedUserIds.reduce((sum, uid) => {
             const { totalCount: dayTotal } = getCalendarDayStatus(
               familyTasks,
@@ -298,13 +288,11 @@ export function Calendar({
           } ${
             soft
               ? `${
-                  isFocusedDay
-                    ? "bg-amber-50/85 ring-1 ring-amber-200/45"
-                    : isCurrentDay
-                      ? "bg-amber-50/40"
-                      : inMonth
-                        ? "bg-[#fffcf8]"
-                        : "bg-[#fffdf9]/90"
+                  isCurrentDay
+                    ? "bg-amber-50/50"
+                    : inMonth
+                      ? "bg-[#fffcf8]"
+                      : "bg-[#fffdf9]/90"
                 } text-slate-700 hover:bg-amber-50/80 active:bg-amber-50/90 md:hover:shadow-[0_1px_3px_rgba(245,158,11,0.07)] md:hover:-translate-y-px`
               : isCurrentDay
                 ? "border-amber-400 bg-amber-50 font-bold text-amber-900"
@@ -416,21 +404,6 @@ export function Calendar({
               </div>
             </>
           );
-
-          if (onSelectDate) {
-            return (
-              <button
-                key={dateKey}
-                type="button"
-                onClick={() => onSelectDate(dateKey)}
-                className={cellClassName}
-                aria-pressed={isFocusedDay}
-                aria-label={`${day.getMonth() + 1}月${day.getDate()}日を選択`}
-              >
-                {cellInner}
-              </button>
-            );
-          }
 
           return (
             <Link

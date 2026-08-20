@@ -7,10 +7,8 @@ import { AuthGuard } from "@/components/AuthGuard";
 import { Calendar } from "@/components/Calendar";
 import { MyTodayTasks } from "@/components/MemberSidebar";
 import { MemberSwitcher } from "@/components/MemberSwitcher";
-import { SelectedDayTasks } from "@/components/SelectedDayTasks";
 import { TodayTasksModal } from "@/components/TodayTasksModal";
 import { useApp } from "@/context/AppProvider";
-import { toDateKey } from "@/lib/date-utils";
 import {
   homeHrefForSelection,
   parseSelectedUserIds,
@@ -19,9 +17,6 @@ import {
 
 function HomeContentInner() {
   const [currentMonth, setCurrentMonth] = useState(new Date());
-  const [selectedDateKey, setSelectedDateKey] = useState(() =>
-    toDateKey(new Date()),
-  );
   const { currentUser, isFamilyMember } = useApp();
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -50,10 +45,6 @@ function HomeContentInner() {
     [currentUser, router, selectedUserIds],
   );
 
-  const handleSelectDate = useCallback((dateKey: string) => {
-    setSelectedDateKey(dateKey);
-  }, []);
-
   if (!currentUser) return null;
 
   const calendarProps = {
@@ -66,7 +57,7 @@ function HomeContentInner() {
 
   return (
     <div className="mx-auto flex h-dvh max-h-dvh w-full max-w-[90rem] flex-col overflow-hidden bg-[#fffdfb]">
-      {/* スマホ・iPad縦向け（〜lg未満） */}
+      {/* スマホ・iPad縦：見た目のみ縦配置。日付タップはPCと同じ /day 遷移 */}
       <div className="flex min-h-0 flex-1 flex-col overflow-hidden lg:hidden">
         <div className="shrink-0 px-3 pt-2 sm:px-4 sm:pt-3 md:px-6 md:pt-4">
           <AppHeader showLogin={false} compact />
@@ -77,23 +68,14 @@ function HomeContentInner() {
             selectedUserIds={selectedUserIds}
             onSelectUser={handleSelectUser}
           />
-          <Calendar
-            {...calendarProps}
-            compact
-            hideUserBanner
-            selectedDateKey={selectedDateKey}
-            onSelectDate={handleSelectDate}
-          />
-          <SelectedDayTasks
-            dateKey={selectedDateKey}
-            userIds={selectedUserIds}
-          />
+          <Calendar {...calendarProps} compact hideUserBanner />
+          <MyTodayTasks compactMobile userIds={selectedUserIds} />
         </main>
 
         <TodayTasksModal userIds={selectedUserIds} />
       </div>
 
-      {/* PC / iPad横：1面のダッシュボード（lg〜）— 既存動作を維持 */}
+      {/* PC / iPad横：既存ダッシュボード */}
       <div className="hidden min-h-0 flex-1 flex-col overflow-hidden lg:flex">
         <AppHeader
           showLogin={false}
