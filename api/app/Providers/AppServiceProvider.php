@@ -6,6 +6,7 @@ use App\Services\FamilySyncBroadcaster;
 use App\Services\FirebaseAuthService;
 use App\Services\FirebaseStorageService;
 use App\Services\FirestoreService;
+use App\Services\DueSoonNotificationChecker;
 use App\Services\NotificationBroadcaster;
 use App\Services\NotificationService;
 use App\Services\ProfilePresenter;
@@ -29,6 +30,7 @@ class AppServiceProvider extends ServiceProvider
         $this->app->singleton(FamilySyncBroadcaster::class);
         $this->app->singleton(NotificationBroadcaster::class);
         $this->app->singleton(NotificationService::class);
+        $this->app->singleton(DueSoonNotificationChecker::class);
     }
 
     /**

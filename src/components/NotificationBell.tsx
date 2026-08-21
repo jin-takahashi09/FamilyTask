@@ -276,16 +276,16 @@ export function NotificationBell({ userId, compact = false }: NotificationBellPr
                           <Icon className={`h-4 w-4 ${iconColor}`} />
                         </span>
 
-                        <span className="min-w-0 flex-1">
+                        <span className="min-w-0 flex-1 overflow-hidden">
                           <span
-                            className={`block text-[13px] leading-snug text-slate-800 sm:text-sm ${
+                            className={`block break-words whitespace-normal text-[13px] leading-snug text-slate-800 sm:text-sm ${
                               unread ? "font-bold" : "font-semibold"
                             }`}
                           >
                             {notification.title}
                           </span>
                           {taskLabel ? (
-                            <span className="mt-0.5 block truncate text-[13px] leading-snug text-slate-600 sm:text-sm">
+                            <span className="mt-0.5 block break-words whitespace-normal text-[13px] leading-snug text-slate-600 sm:text-sm">
                               {taskLabel}
                             </span>
                           ) : null}

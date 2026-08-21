@@ -210,8 +210,8 @@ class NotificationService
     }
 
     /**
-     * Phase 8-2 entry point: due-soon notifications.
-     * Not scheduled in Phase 8-1.
+     * Create a due-soon notification for the assignee when the deadline is ~30 minutes away.
+     * Dedupe key includes date+deadlineTime so a changed deadline can notify again.
      */
     public function notifyTaskDueSoon(TaskData $task): ?NotificationData
     {
@@ -231,8 +231,8 @@ class NotificationService
             'type' => NotificationData::TYPE_TASK_DUE_SOON,
             'taskId' => $task->id,
             'actorUserId' => null,
-            'title' => '「'.$task->title.'」の締切が近づいています',
-            'message' => '締切 '.$task->deadlineTime,
+            'title' => '締切が近づいています',
+            'message' => '「'.$task->title.'」の締切まで30分です',
             'taskDate' => $task->date,
             'dedupeKey' => $dedupeKey,
         ]);
@@ -355,7 +355,7 @@ class NotificationService
         return 'メンバー';
     }
 
-    private function existsByDedupeKey(string $dedupeKey): bool
+    protected function existsByDedupeKey(string $dedupeKey): bool
     {
         try {
             $documents = $this->firestore->getClient()
