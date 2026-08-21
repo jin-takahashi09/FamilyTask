@@ -23,6 +23,7 @@ class TaskService
         private readonly MembershipService $memberships,
         private readonly TaskRecurrenceService $recurrence,
         private readonly FamilySyncBroadcaster $sync,
+        private readonly NotificationService $notifications,
     ) {}
 
     /**
@@ -189,10 +190,25 @@ class TaskService
 
             $this->sync->dispatch($familyId, FamilySyncEventType::TaskCreated, $now->get());
 
-            return array_map(
+            $created = array_map(
                 fn (array $doc) => TaskData::fromFirestore($doc['id'], $doc),
                 $documents,
             );
+
+            // One assigned notification per create action (first occurrence for recurrence).
+            if ($created !== []) {
+                try {
+                    $this->notifications->notifyTaskAssigned($created[0]);
+                } catch (Throwable $e) {
+                    Log::warning('Task assigned notification failed', [
+                        'taskId' => $created[0]->id,
+                        'exceptionClass' => $e::class,
+                        'exceptionMessage' => $e->getMessage(),
+                    ]);
+                }
+            }
+
+            return $created;
         } catch (TaskServiceException $e) {
             throw $e;
         } catch (Throwable $e) {
@@ -283,6 +299,18 @@ class TaskService
             $this->resolveTaskUpdateEventType($input),
             $now->get(),
         );
+
+        if (array_key_exists('completed', $input)) {
+            try {
+                $this->notifications->notifyTaskCompleted($updated, $existing->completed);
+            } catch (Throwable $e) {
+                Log::warning('Task completed notification failed', [
+                    'taskId' => $updated->id,
+                    'exceptionClass' => $e::class,
+                    'exceptionMessage' => $e->getMessage(),
+                ]);
+            }
+        }
 
         return $updated;
     }

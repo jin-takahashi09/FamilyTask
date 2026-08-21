@@ -3,7 +3,11 @@
 import Echo from "laravel-echo";
 import Pusher from "pusher-js";
 import { getFirebaseAuth } from "@/lib/firebase/client";
-import type { FamilySyncPayload, RealtimeConnectionState } from "./types";
+import type {
+  FamilySyncPayload,
+  NotificationRealtimePayload,
+  RealtimeConnectionState,
+} from "./types";
 
 const DEFAULT_API_BASE_URL = "http://127.0.0.1:8000";
 
@@ -13,6 +17,8 @@ let echoInstance: Echo<"pusher"> | null = null;
 let echoInitPromise: Promise<Echo<"pusher"> | null> | null = null;
 let subscribedFamilyId: string | null = null;
 let subscribedChannel: ReturnType<Echo<"pusher">["private"]> | null = null;
+let subscribedUserId: string | null = null;
+let subscribedUserChannel: ReturnType<Echo<"pusher">["private"]> | null = null;
 const connectionListeners = new Set<ConnectionListener>();
 let connectionState: RealtimeConnectionState = "idle";
 
@@ -195,6 +201,18 @@ function leaveCurrentFamilyChannel(): void {
   subscribedFamilyId = null;
 }
 
+function leaveCurrentUserChannel(): void {
+  if (!echoInstance || !subscribedUserId) {
+    subscribedUserChannel = null;
+    subscribedUserId = null;
+    return;
+  }
+
+  echoInstance.leave(`user.${subscribedUserId}`);
+  subscribedUserChannel = null;
+  subscribedUserId = null;
+}
+
 export function subscribeFamilySyncChannel(
   familyId: string,
   onEvent: (payload: FamilySyncPayload) => void,
@@ -239,8 +257,53 @@ export function subscribeFamilySyncChannel(
   };
 }
 
+export function subscribeUserNotificationChannel(
+  userId: string,
+  onEvent: (payload: NotificationRealtimePayload) => void,
+): () => void {
+  let cancelled = false;
+  let cleanup: (() => void) | null = null;
+
+  void ensureEchoConnected().then((echo) => {
+    if (cancelled || !echo) {
+      return;
+    }
+
+    if (subscribedUserId === userId && subscribedUserChannel) {
+      subscribedUserChannel.stopListening(".notification.updated");
+      subscribedUserChannel.listen(".notification.updated", onEvent);
+      cleanup = () => {
+        if (subscribedUserId === userId) {
+          leaveCurrentUserChannel();
+        }
+      };
+      return;
+    }
+
+    leaveCurrentUserChannel();
+
+    const channel = echo.private(`user.${userId}`);
+    channel.listen(".notification.updated", onEvent);
+
+    subscribedUserId = userId;
+    subscribedUserChannel = channel;
+
+    cleanup = () => {
+      if (subscribedUserId === userId) {
+        leaveCurrentUserChannel();
+      }
+    };
+  });
+
+  return () => {
+    cancelled = true;
+    cleanup?.();
+  };
+}
+
 export function disconnectEcho(): void {
   leaveCurrentFamilyChannel();
+  leaveCurrentUserChannel();
 
   if (echoInstance) {
     echoInstance.disconnect();

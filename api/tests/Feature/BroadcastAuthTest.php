@@ -105,4 +105,27 @@ class BroadcastAuthTest extends TestCase
             'Authorization' => 'Bearer valid-token',
         ])->assertOk();
     }
+
+    public function test_user_notification_channel_allows_own_uid(): void
+    {
+        $response = $this->post('/api/broadcasting/auth', [
+            'socket_id' => '1.1',
+            'channel_name' => 'private-user.firebase-uid-123',
+        ], [
+            'Authorization' => 'Bearer valid-token',
+        ]);
+
+        $response->assertOk();
+        $this->assertArrayHasKey('auth', $response->json());
+    }
+
+    public function test_user_notification_channel_rejects_other_uid(): void
+    {
+        $this->post('/api/broadcasting/auth', [
+            'socket_id' => '1.1',
+            'channel_name' => 'private-user.other-user',
+        ], [
+            'Authorization' => 'Bearer valid-token',
+        ])->assertForbidden();
+    }
 }

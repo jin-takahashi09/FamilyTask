@@ -18,3 +18,10 @@ export type FamilySyncRefetchPlan = {
   profile?: boolean;
   resolveActiveFamily?: boolean;
 };
+
+export type NotificationRealtimePayload = {
+  userId: string;
+  eventType: string;
+  updatedAt: string;
+  notificationId: string | null;
+};

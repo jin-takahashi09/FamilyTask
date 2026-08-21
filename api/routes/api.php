@@ -3,6 +3,7 @@
 use App\Http\Controllers\AuthMeController;
 use App\Http\Controllers\FamilyController;
 use App\Http\Controllers\FirestoreHealthController;
+use App\Http\Controllers\NotificationController;
 use App\Http\Controllers\ProfileController;
 use App\Http\Controllers\TaskController;
 use Illuminate\Http\Request;
@@ -43,6 +44,10 @@ Route::middleware('firebase.auth')->group(function () {
     Route::patch('/families/{familyId}/tasks/{taskId}/complete', [TaskController::class, 'complete']);
     Route::delete('/families/{familyId}/tasks/{taskId}', [TaskController::class, 'destroy']);
     Route::delete('/families/{familyId}/recurrences/{recurrenceGroupId}', [TaskController::class, 'destroyRecurrence']);
+
+    Route::get('/notifications', [NotificationController::class, 'index']);
+    Route::patch('/notifications/{id}/read', [NotificationController::class, 'markRead']);
+    Route::post('/notifications/read-all', [NotificationController::class, 'markAllRead']);
 });
 
 Route::get('/user', function (Request $request) {

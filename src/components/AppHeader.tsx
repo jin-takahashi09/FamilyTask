@@ -3,6 +3,7 @@
 import { useEffect, type ReactNode } from "react";
 import Link from "next/link";
 import { Settings2 } from "lucide-react";
+import { NotificationBell } from "@/components/NotificationBell";
 import { ProfileMenu } from "@/components/ProfileMenu";
 import { useApp } from "@/context/AppProvider";
 import { getBoardTitle } from "@/lib/family-utils";
@@ -84,11 +85,17 @@ export function AppHeader({
 
         <div
           className={`flex shrink-0 items-center ${
-            board ? "ml-3 gap-0 border-l border-[#eadfce]/80 pl-4" : "gap-1.5 sm:gap-2"
+            board ? "ml-3 gap-1.5 border-l border-[#eadfce]/80 pl-4" : "gap-1.5 sm:gap-2"
           }`}
         >
           {isAuthenticated && currentUser ? (
-            <ProfileMenu accountMenu={board} />
+            <>
+              <NotificationBell
+                userId={currentUser.id}
+                compact={board || compact}
+              />
+              <ProfileMenu accountMenu={board} />
+            </>
           ) : (
             showLogin && (
               <Link

@@ -57,6 +57,27 @@ export type TaskSortOrder =
   | "createdAsc"
   | "titleAsc";
 
+export type NotificationType =
+  | "task.assigned"
+  | "task.due_soon"
+  | "task.completed";
+
+export type AppNotification = {
+  id: string;
+  userId: string;
+  familyId: string;
+  type: NotificationType | string;
+  taskId: string;
+  actorUserId: string | null;
+  title: string;
+  message: string;
+  taskDate: string | null;
+  readAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+  dedupeKey: string | null;
+};
+
 export type AddTaskResult =
   | { success: true; createdCount: number; recurrenceGroupId: string | null }
   | { success: false; error?: string };
