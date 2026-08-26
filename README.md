@@ -43,7 +43,7 @@ FamilyTask は、家庭内のタスクをメンバー同士で依頼・完了で
 | 通知 | グループ・メンバー管理 |
 | <img src="docs/screenshots/pc-notifications.png" alt="PC通知" width="100%"> | <img src="docs/screenshots/pc-family-manage.png" alt="PCグループ・メンバー管理" width="100%"> |
 
-### スマホ
+### モバイル
 
 | メイン画面（カレンダー） | タスク作成 |
 | :---: | :---: |
