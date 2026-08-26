@@ -183,7 +183,3 @@ export function getBoardTitle(familyName?: string | null): string {
   if (name) return `${name}のタスクボード`;
   return "タスクボード";
 }
-
-/** Cloud-backed families notice */
-export const FAMILY_LOCAL_STORAGE_NOTICE =
-  "家族グループはクラウドに保存されます。タスクはこの端末のブラウザに保存されています。";

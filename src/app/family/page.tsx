@@ -19,7 +19,6 @@ import { AuthGuard } from "@/components/AuthGuard";
 import { ConfirmDialog, DeleteFamilyDialog } from "@/components/ConfirmDialog";
 import { UserAvatar } from "@/components/UserAvatar";
 import { useApp } from "@/context/AppProvider";
-import { FAMILY_LOCAL_STORAGE_NOTICE } from "@/lib/family-utils";
 import { getUserLabel } from "@/lib/user-utils";
 
 type Section = "main" | "create" | "join";
@@ -494,10 +493,6 @@ function FamilyPageContent() {
           </div>
         </section>
       </div>
-
-      <p className="rounded-2xl border border-amber-100 bg-amber-50/60 px-4 py-3 text-center text-xs leading-relaxed text-amber-800/80">
-        {FAMILY_LOCAL_STORAGE_NOTICE}
-      </p>
 
       <ConfirmDialog
         open={leaveDialogOpen}

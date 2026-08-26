@@ -137,10 +137,6 @@ export function MemberSwitcher({
         </Link>
       </div>
 
-      <p className="mb-2 text-[10px] leading-snug text-[#a8927a]">
-        タップで表示、もう一度で非表示。複数人を同時に表示できます
-      </p>
-
       <div className="-mx-3 overflow-x-auto overscroll-x-contain px-3 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden md:mx-0 md:overflow-visible md:px-0">
         <ul className="flex flex-nowrap items-start gap-3 pr-6 md:flex-wrap md:gap-3 md:pr-0">
           {members.map((user) => (

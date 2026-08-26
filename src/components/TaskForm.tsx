@@ -22,7 +22,6 @@ import {
 import type { RepeatType, Task } from "@/lib/types";
 import { DeadlineTimeField } from "@/components/DeadlineTimePicker";
 import { RepeatEndDateField } from "@/components/RepeatEndDateField";
-import { VoiceInputButton } from "./VoiceInputButton";
 
 type TaskFormProps = {
   dateKey: string;
@@ -283,16 +282,13 @@ export function TaskForm({
           <label className="mb-1 block text-xs font-bold text-slate-700">
             課題 (タスク内容) <span className="text-rose-500">*</span>
           </label>
-          <div className="flex gap-2">
-            <input
-              type="text"
-              value={title}
-              onChange={(e) => setTitle(e.target.value)}
-              placeholder="例: シャツのアイロンがけ、牛乳を買う"
-              className="flex-1 rounded-xl border border-slate-200 px-4 py-2.5 text-sm font-bold focus:border-amber-400 focus:outline-none focus:ring-2 focus:ring-amber-100"
-            />
-            <VoiceInputButton onResult={(text) => setTitle(text)} />
-          </div>
+          <input
+            type="text"
+            value={title}
+            onChange={(e) => setTitle(e.target.value)}
+            placeholder="例: シャツのアイロンがけ、牛乳を買う"
+            className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm font-bold focus:border-amber-400 focus:outline-none focus:ring-2 focus:ring-amber-100"
+          />
         </div>
 
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">

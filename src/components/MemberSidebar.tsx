@@ -74,9 +74,6 @@ export function MemberSidebar({
         <p className="text-[11px] font-bold text-slate-500 lg:text-xs">
           共有中のメンバー
         </p>
-        <p className="text-[10px] leading-snug text-slate-400">
-          クリックで表示 / もう一度で非表示。複数人を同時に表示できます
-        </p>
 
         <div id="family-member-list" className="flex flex-col gap-2">
           {members.map((user) => {

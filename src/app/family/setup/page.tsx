@@ -4,7 +4,6 @@ import { FormEvent, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { AuthGuard } from "@/components/AuthGuard";
 import { useApp } from "@/context/AppProvider";
-import { FAMILY_LOCAL_STORAGE_NOTICE } from "@/lib/family-utils";
 
 type SetupMode = "create" | "join";
 
@@ -170,10 +169,6 @@ function FamilySetupContent() {
           <p className="mt-4 text-sm font-bold text-rose-500">{error}</p>
         )}
       </div>
-
-      <p className="mt-6 rounded-2xl border border-amber-100 bg-amber-50/60 px-4 py-3 text-center text-xs leading-relaxed text-amber-800/80">
-        {FAMILY_LOCAL_STORAGE_NOTICE}
-      </p>
     </div>
   );
 }

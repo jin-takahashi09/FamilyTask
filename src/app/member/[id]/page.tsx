@@ -61,10 +61,6 @@ function MemberPageContent({ userId }: { userId: string }) {
           isSelf={isSelf}
         />
       </main>
-
-      <p className="text-center text-xs text-amber-700/60">
-        データはこの端末のブラウザに保存されます（お試し版）
-      </p>
     </div>
   );
 }

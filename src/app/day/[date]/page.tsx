@@ -161,10 +161,6 @@ export default function DayPage({ params }: DayPageProps) {
         >
           <DayPageContent dateKey={dateKey} />
         </Suspense>
-
-        <p className="text-center text-xs text-amber-700/60">
-          データはこの端末のブラウザに保存されます（お試し版）
-        </p>
       </div>
     </AuthGuard>
   );
