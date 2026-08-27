@@ -4,6 +4,7 @@ namespace App\Services;
 
 use App\Data\VerifiedFirebaseUser;
 use App\Exceptions\FirebaseAuthenticationException;
+use Illuminate\Support\Facades\Log;
 use Kreait\Firebase\Auth;
 use Kreait\Firebase\Exception\Auth\FailedToVerifyToken;
 use Kreait\Firebase\Factory;
@@ -56,16 +57,86 @@ class FirebaseAuthService
             $verifiedToken = $this->auth()->verifyIdToken($idToken);
             $claims = $verifiedToken->claims();
 
+            if (app()->environment('local')) {
+                Log::info('Firebase ID token verified', [
+                    'uidPresent' => $claims->has('sub'),
+                    'emailVerified' => (bool) $claims->get('email_verified', false),
+                    'authTime' => $this->claimAsUnixString($claims->get('auth_time', null)),
+                    'iat' => $this->claimAsUnixString($claims->get('iat', null)),
+                    'exp' => $this->claimAsUnixString($claims->get('exp', null)),
+                    'phpTime' => now()->toIso8601String(),
+                    'credentialsProjectId' => $this->credentialsProjectId(),
+                ]);
+            }
+
             return new VerifiedFirebaseUser(
                 uid: (string) $claims->get('sub'),
                 email: $claims->has('email') ? (string) $claims->get('email') : null,
                 emailVerified: (bool) $claims->get('email_verified', false),
             );
-        } catch (FailedToVerifyToken) {
+        } catch (FailedToVerifyToken $e) {
+            if (app()->environment('local')) {
+                Log::warning('Firebase ID token verification failed', [
+                    'exceptionClass' => $e::class,
+                    'safeReason' => $e->getMessage(),
+                    'previousClass' => $e->getPrevious() ? $e->getPrevious()::class : null,
+                    'previousMessage' => $e->getPrevious()?->getMessage(),
+                    'credentialsProjectId' => $this->credentialsProjectId(),
+                    'expectedProjectId' => env('FIREBASE_PROJECT_ID') ?: $this->credentialsProjectId(),
+                    'phpTime' => now()->toIso8601String(),
+                    'configured' => $this->isConfigured(),
+                    'emulator' => $this->authEmulatorHost(),
+                ]);
+            }
+
             throw new FirebaseAuthenticationException('Invalid Firebase ID token.');
         } catch (Throwable $e) {
+            if (app()->environment('local')) {
+                Log::warning('Firebase ID token verification error', [
+                    'exceptionClass' => $e::class,
+                    'safeReason' => $e->getMessage(),
+                    'previousClass' => $e->getPrevious() ? $e->getPrevious()::class : null,
+                    'previousMessage' => $e->getPrevious()?->getMessage(),
+                    'credentialsProjectId' => $this->credentialsProjectId(),
+                    'expectedProjectId' => env('FIREBASE_PROJECT_ID') ?: $this->credentialsProjectId(),
+                    'phpTime' => now()->toIso8601String(),
+                    'configured' => $this->isConfigured(),
+                    'emulator' => $this->authEmulatorHost(),
+                ]);
+            }
+
             throw new FirebaseAuthenticationException('Failed to verify Firebase ID token.');
         }
+    }
+
+    private function credentialsProjectId(): ?string
+    {
+        $path = $this->credentialsPath();
+        if ($path === null || ! is_readable($path)) {
+            return null;
+        }
+
+        $json = json_decode((string) file_get_contents($path), true);
+        if (! is_array($json)) {
+            return null;
+        }
+
+        $projectId = $json['project_id'] ?? null;
+
+        return is_string($projectId) && $projectId !== '' ? $projectId : null;
+    }
+
+    private function claimAsUnixString(mixed $value): ?string
+    {
+        if ($value instanceof \DateTimeInterface) {
+            return (string) $value->getTimestamp();
+        }
+
+        if (is_int($value) || is_float($value) || (is_string($value) && $value !== '')) {
+            return (string) $value;
+        }
+
+        return null;
     }
 
     private function auth(): Auth
