@@ -194,7 +194,7 @@ async function createFamilyViaFamilyPage(page, name, maxAttempts = 3) {
       .getByRole("button", { name: "新しいグループを作る" })
       .waitFor({ timeout: 15000 });
     await page.getByRole("button", { name: "新しいグループを作る" }).click();
-    await page.getByPlaceholder("例: 高橋家").fill(name);
+    await page.getByPlaceholder("例: 田中家").fill(name);
     const [createResponse] = await Promise.all([
       page.waitForResponse(
         (r) =>
@@ -466,14 +466,14 @@ async function main() {
   const page = await context.newPage();
 
   let state;
-  let takahashiCode = "";
+  let tanakaCode = "";
   let schoolCode = "";
   let taskGomiId = "";
   let taskHomeworkId = "";
   let userAId = "";
   let userBId = "";
   let userCId = "";
-  let takahashiId = "";
+  let tanakaId = "";
   let schoolId = "";
 
   try {
@@ -487,14 +487,14 @@ async function main() {
     console.log("\n## 1. 複数グループ作成 (User A)");
     await login(page, EMAIL_A, { allowRegister: true });
     await completeProfileIfNeeded(page, "ユーザーA");
-    await createFamilyOnSetup(page, "高橋家");
+    await createFamilyOnSetup(page, "田中家");
     await page.waitForURL(`${BASE}/`, { timeout: 10000 }).catch(() => {});
     await waitForFamiliesLoaded(page, { minMemberships: 1 });
 
     state = await getState(page);
     userAId = state.session?.userId ?? "";
-    takahashiId = state.families.find((f) => f.name === "高橋家")?.id ?? "";
-    record("1", "高橋家作成", Boolean(takahashiId));
+    tanakaId = state.families.find((f) => f.name === "田中家")?.id ?? "";
+    record("1", "田中家作成", Boolean(tanakaId));
 
     await createFamilyViaFamilyPage(page, "学校グループ");
     await waitForMembershipCount(page, userAId, 2);
@@ -510,24 +510,24 @@ async function main() {
     const headerSchool = await headerShowsFamily(page, "学校グループ");
     record("1", "切り替えでグループ名が変わる", headerSchool);
 
-    await switchToFamily(page, "高橋家");
-    record("1", "メンバー一覧切替", await headerShowsFamily(page, "高橋家"));
-    takahashiCode = await getInviteCode(page);
-    record("1", "招待コード取得(高橋家)", takahashiCode.length >= 4, takahashiCode);
+    await switchToFamily(page, "田中家");
+    record("1", "メンバー一覧切替", await headerShowsFamily(page, "田中家"));
+    tanakaCode = await getInviteCode(page);
+    record("1", "招待コード取得(田中家)", tanakaCode.length >= 4, tanakaCode);
 
     await switchToFamily(page, "学校グループ");
     schoolCode = await getInviteCode(page);
-    record("1", "招待コードが切り替わる", schoolCode !== takahashiCode, `${schoolCode} vs ${takahashiCode}`);
+    record("1", "招待コードが切り替わる", schoolCode !== tanakaCode, `${schoolCode} vs ${tanakaCode}`);
 
     // === 2. Task isolation ===
     console.log("\n## 2. タスクの分離");
-    await switchToFamily(page, "高橋家");
-    await addTaskToday(page, "ゴミ出し", takahashiId);
+    await switchToFamily(page, "田中家");
+    await addTaskToday(page, "ゴミ出し", tanakaId);
     state = await getState(page);
     taskGomiId = state.tasks.find((t) => t.title === "ゴミ出し")?.id ?? "";
     const gomiTaskFamilyId =
-      state.tasks.find((t) => t.id === taskGomiId)?.familyId ?? takahashiId;
-    record("2", "高橋家でゴミ出し作成", Boolean(taskGomiId));
+      state.tasks.find((t) => t.id === taskGomiId)?.familyId ?? tanakaId;
+    record("2", "田中家でゴミ出し作成", Boolean(taskGomiId));
 
     await switchToFamily(page, "学校グループ");
     await addTaskToday(page, "宿題を提出する", schoolId);
@@ -540,7 +540,7 @@ async function main() {
     record(
       "2",
       "タスクfamilyIdが分離",
-      gomiTaskFamilyId === takahashiId && hwTaskFamilyId === schoolId,
+      gomiTaskFamilyId === tanakaId && hwTaskFamilyId === schoolId,
       `${gomiTaskFamilyId} vs ${hwTaskFamilyId}`,
     );
 
@@ -565,8 +565,8 @@ async function main() {
       homeworkVisible && gomiHiddenOnSchool,
     );
 
-    await switchToFamily(page, "高橋家");
-    await openDayPageAndWaitForTasks(page, takahashiId, todayKey, {
+    await switchToFamily(page, "田中家");
+    await openDayPageAndWaitForTasks(page, tanakaId, todayKey, {
       titlesPresent: ["ゴミ出し"],
       titlesAbsent: ["宿題を提出する"],
     });
@@ -582,11 +582,11 @@ async function main() {
       .catch(() => false));
     record(
       "2",
-      "高橋家ではゴミ出しのみ表示",
+      "田中家ではゴミ出しのみ表示",
       gomiVisible && homeworkHiddenOnTaka,
     );
 
-    // URL manipulation - try to edit other group's task while on takahashi
+    // URL manipulation - try to edit other group's task while on tanaka
     await page.goto(`${BASE}/day/${localDateKey()}?mine=1`);
     await waitForFamiliesLoaded(page);
     state = await getState(page);
@@ -611,13 +611,13 @@ async function main() {
     await logout(page);
     await login(page, EMAIL_B, { allowRegister: true });
     await completeProfileIfNeeded(page, LONG_USER_NAME);
-    await joinViaSetupPage(page, takahashiCode, null, takahashiId);
+    await joinViaSetupPage(page, tanakaCode, null, tanakaId);
 
     state = await getState(page);
     userBId = state.session?.userId ?? "";
-    await waitForFamilyInState(page, takahashiId);
+    await waitForFamilyInState(page, tanakaId);
     const bMemberships1 = state.memberships.filter((m) => m.userId === userBId);
-    record("3", "高橋家へ参加", bMemberships1.some((m) => m.familyId === takahashiId));
+    record("3", "田中家へ参加", bMemberships1.some((m) => m.familyId === tanakaId));
 
     await joinViaFamilyPage(page, schoolCode);
     await waitForMembershipCount(page, userBId, 2, 60000);
@@ -627,7 +627,7 @@ async function main() {
 
     await page.waitForURL(/\/(family|\/?)$/, { timeout: 15000 }).catch(() => {});
     await waitForAppReady(page);
-    const dupRejected = await joinViaFamilyPage(page, takahashiCode, {
+    const dupRejected = await joinViaFamilyPage(page, tanakaCode, {
       expectDuplicate: true,
     });
     record("3", "重複参加エラー", dupRejected);
@@ -639,7 +639,7 @@ async function main() {
     await logout(page);
     await login(page, EMAIL_A);
     await completeProfileIfNeeded(page, "ユーザーA");
-    await switchToFamily(page, "高橋家");
+    await switchToFamily(page, "田中家");
     const calendarTodayKey = localDateKey();
 
     await page.goto(`${BASE}/day/${calendarTodayKey}?mine=1`);
@@ -704,11 +704,11 @@ async function main() {
       { timeout: 120000 },
     );
     await waitForMembershipCount(page, userBId, 2, 120000);
-    await waitForFamilyNameInState(page, "高橋家", 120000);
+    await waitForFamilyNameInState(page, "田中家", 120000);
 
-    // === 4. User B leaves takahashi ===
+    // === 4. User B leaves tanaka ===
     console.log("\n## 4. 一般メンバー退出 (User B)");
-    await switchToFamily(page, "高橋家");
+    await switchToFamily(page, "田中家");
     await openFamilyPage(page);
     await page.setViewportSize({ width: 375, height: 800 });
     await page
@@ -731,18 +731,18 @@ async function main() {
         : "dialog not found",
     );
     await page.getByRole("button", { name: "退出する" }).click();
-    await waitForMembershipRemoved(page, userBId, takahashiId);
+    await waitForMembershipRemoved(page, userBId, tanakaId);
     await page.setViewportSize({ width: 1024, height: 800 });
 
     state = await getState(page);
     const bAfterLeave = state.memberships.filter((m) => m.userId === userBId);
-    record("4", "高橋家membershipのみ削除", !bAfterLeave.some((m) => m.familyId === takahashiId) && bAfterLeave.some((m) => m.familyId === schoolId));
+    record("4", "田中家membershipのみ削除", !bAfterLeave.some((m) => m.familyId === tanakaId) && bAfterLeave.some((m) => m.familyId === schoolId));
     record("4", "ユーザーBアカウント残存", state.users.some((u) => u.id === userBId));
     record("4", "学校グループへ自動切替", state.session?.activeFamilyId === schoolId);
 
     await logout(page);
     await login(page, EMAIL_A);
-    await switchToFamily(page, "高橋家");
+    await switchToFamily(page, "田中家");
     await openFamilyPage(page);
     await page.waitForFunction(
       (name) => !document.body.textContent?.includes(name),
@@ -761,36 +761,36 @@ async function main() {
       timeout: 120000,
     });
     await openFamilyPage(page, { requireSwitcher: false, timeout: 120000 });
-    const takahashiOption = await page.getByRole("button", { name: "高橋家", exact: true }).count();
-    record("4", "退出後元グループへ切替不可", takahashiOption === 0);
+    const tanakaOption = await page.getByRole("button", { name: "田中家", exact: true }).count();
+    record("4", "退出後元グループへ切替不可", tanakaOption === 0);
 
     // === 5. User C join + owner removes ===
     console.log("\n## 5. オーナーによるメンバー削除");
     await logout(page);
     await login(page, EMAIL_C, { allowRegister: true });
     await completeProfileIfNeeded(page, "ユーザーC");
-    await joinViaSetupPage(page, takahashiCode, null, takahashiId);
+    await joinViaSetupPage(page, tanakaCode, null, tanakaId);
     state = await getState(page);
     userCId = state.session?.userId ?? "";
     record(
       "5",
       "User C参加",
       state.memberships.some(
-        (m) => m.userId === userCId && m.familyId === takahashiId,
+        (m) => m.userId === userCId && m.familyId === tanakaId,
       ),
     );
 
     await logout(page);
     await login(page, EMAIL_A);
-    await switchToFamily(page, "高橋家");
+    await switchToFamily(page, "田中家");
     await openFamilyPage(page);
     try {
-      await waitForMembersApiCount(page, takahashiId, 2);
+      await waitForMembersApiCount(page, tanakaId, 2);
     } catch {
       await switchToFamily(page, "学校グループ");
-      await switchToFamily(page, "高橋家");
+      await switchToFamily(page, "田中家");
       await openFamilyPage(page);
-      await waitForMembersApiCount(page, takahashiId, 2);
+      await waitForMembersApiCount(page, tanakaId, 2);
     }
     await waitForActiveFamilyMemberCount(page, 2);
 
@@ -813,16 +813,16 @@ async function main() {
     await page
       .waitForResponse(
         (r) =>
-          r.url().includes(`/api/families/${takahashiId}/members`) &&
+          r.url().includes(`/api/families/${tanakaId}/members`) &&
           r.request().method() === "GET" &&
           r.ok(),
         { timeout: 30000 },
       )
       .catch(() => null);
-    await waitForMemberRemovedFromFamily(page, userCId, takahashiId);
+    await waitForMemberRemovedFromFamily(page, userCId, tanakaId);
 
     state = await getState(page);
-    record("5", "ユーザーC membership削除", !state.memberships.some((m) => m.userId === userCId && m.familyId === takahashiId));
+    record("5", "ユーザーC membership削除", !state.memberships.some((m) => m.userId === userCId && m.familyId === tanakaId));
     record("5", "ユーザーCアカウント残存", state.users.some((u) => u.id === userCId));
     const selfRemoveVisible = await page.getByRole("button", { name: "削除", exact: true }).count();
     record("5", "オーナー自身は削除不可", selfRemoveVisible === 0);
@@ -985,7 +985,7 @@ async function main() {
 
     // === 7. Group deletion ===
     console.log("\n## 7. グループ削除");
-    await switchToFamily(page, "高橋家");
+    await switchToFamily(page, "田中家");
     await openFamilyPage(page);
     const membershipsBeforeDelete = (await getState(page)).memberships.length;
     await page.getByRole("button", { name: "グループを削除" }).click();
@@ -995,12 +995,12 @@ async function main() {
     await page.getByRole("alertdialog").waitFor({ state: "hidden", timeout: 5000 }).catch(() => {});
 
     await page.getByRole("button", { name: "グループを削除" }).click();
-    await page.locator('input[placeholder="高橋家"]').fill("高橋家");
+    await page.locator('input[placeholder="田中家"]').fill("田中家");
     await page.getByRole("button", { name: "削除する" }).click();
-    await waitForFamilyRemoved(page, takahashiId);
+    await waitForFamilyRemoved(page, tanakaId);
 
     state = await getState(page);
-    record("7", "対象グループのみ削除", !state.families.some((f) => f.id === takahashiId));
+    record("7", "対象グループのみ削除", !state.families.some((f) => f.id === tanakaId));
     record("7", "対象membership削除", state.memberships.length < membershipsBeforeDelete);
     record("7", "対象タスク削除", !state.tasks.some((t) => t.id === taskGomiId));
     record("7", "UserProfile残存", state.users.length >= 3);
@@ -1021,7 +1021,7 @@ async function main() {
     record(
       "7",
       "削除後に別グループへ切替",
-      !aMemberships.some((m) => m.familyId === takahashiId) && aMemberships.length > 0,
+      !aMemberships.some((m) => m.familyId === tanakaId) && aMemberships.length > 0,
       `remaining=${aMemberships.length}`,
     );
 

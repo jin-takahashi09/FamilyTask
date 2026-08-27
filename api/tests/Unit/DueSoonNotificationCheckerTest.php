@@ -41,7 +41,7 @@ class DueSoonNotificationCheckerTest extends TestCase
             requesterId: array_key_exists('requesterId', $overrides)
                 ? $overrides['requesterId']
                 : null,
-            assigneeId: $overrides['assigneeId'] ?? 'jin',
+            assigneeId: $overrides['assigneeId'] ?? 'user-a',
             deadlineTime: array_key_exists('deadlineTime', $overrides)
                 ? $overrides['deadlineTime']
                 : '18:00',
@@ -52,7 +52,7 @@ class DueSoonNotificationCheckerTest extends TestCase
             repeatWeekday: null,
             repeatEndDate: null,
             recurrenceGroupId: $overrides['recurrenceGroupId'] ?? null,
-            createdBy: $overrides['createdBy'] ?? 'jin',
+            createdBy: $overrides['createdBy'] ?? 'user-a',
             createdAt: '2026-08-21T00:00:00+09:00',
             updatedAt: '2026-08-21T00:00:00+09:00',
             completedAt: null,
@@ -125,8 +125,8 @@ class DueSoonNotificationCheckerTest extends TestCase
         $this->assertTrue($this->checker->isInDueSoonWindow(
             $this->task([
                 'requesterId' => null,
-                'assigneeId' => 'jin',
-                'createdBy' => 'jin',
+                'assigneeId' => 'user-a',
+                'createdBy' => 'user-a',
             ]),
             $this->tokyo('2026-08-21 17:30:00'),
         ));
@@ -136,14 +136,14 @@ class DueSoonNotificationCheckerTest extends TestCase
     {
         $task = $this->task([
             'requesterId' => 'brother',
-            'assigneeId' => 'jin',
+            'assigneeId' => 'user-a',
         ]);
 
         $this->assertTrue($this->checker->isInDueSoonWindow(
             $task,
             $this->tokyo('2026-08-21 17:30:00'),
         ));
-        $this->assertSame('jin', $task->assigneeId);
+        $this->assertSame('user-a', $task->assigneeId);
         $this->assertSame('brother', $task->requesterId);
     }
 

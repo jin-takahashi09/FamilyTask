@@ -15,7 +15,7 @@ class FamilyTest extends TestCase
     {
         return new FamilyData(
             id: 'family-1',
-            name: '高橋家',
+            name: '田中家',
             inviteCode: 'ABC123',
             ownerId: 'firebase-uid-123',
             createdAt: '2026-08-06T00:00:00+00:00',
@@ -52,15 +52,15 @@ class FamilyTest extends TestCase
         $this->mock(FamilyService::class, function (MockInterface $mock) {
             $mock->shouldReceive('create')
                 ->once()
-                ->with('firebase-uid-123', '高橋家')
+                ->with('firebase-uid-123', '田中家')
                 ->andReturn($this->familyFixture());
         });
 
-        $this->postJson('/api/families', ['name' => '高橋家'], [
+        $this->postJson('/api/families', ['name' => '田中家'], [
             'Authorization' => 'Bearer valid-token',
         ])
             ->assertCreated()
-            ->assertJsonPath('family.name', '高橋家')
+            ->assertJsonPath('family.name', '田中家')
             ->assertJsonPath('family.role', 'owner');
     }
 
@@ -69,12 +69,12 @@ class FamilyTest extends TestCase
         $this->mock(FamilyService::class, function (MockInterface $mock) {
             $mock->shouldReceive('create')
                 ->once()
-                ->with('firebase-uid-123', '高橋家')
+                ->with('firebase-uid-123', '田中家')
                 ->andReturn($this->familyFixture());
         });
 
         $this->postJson('/api/families', [
-            'name' => '高橋家',
+            'name' => '田中家',
             'ownerId' => 'attacker-uid',
         ], [
             'Authorization' => 'Bearer valid-token',
@@ -300,11 +300,11 @@ class FamilyTest extends TestCase
         $this->mock(FamilyService::class, function (MockInterface $mock) {
             $mock->shouldReceive('delete')
                 ->once()
-                ->with('firebase-uid-123', 'family-1', '高橋家');
+                ->with('firebase-uid-123', 'family-1', '田中家');
         });
 
         $this->deleteJson('/api/families/family-1', [
-            'confirmName' => '高橋家',
+            'confirmName' => '田中家',
         ], [
             'Authorization' => 'Bearer valid-token',
         ])->assertOk();
@@ -334,7 +334,7 @@ class FamilyTest extends TestCase
         });
 
         $this->deleteJson('/api/families/family-1', [
-            'confirmName' => '高橋家',
+            'confirmName' => '田中家',
         ], [
             'Authorization' => 'Bearer valid-token',
         ])->assertForbidden();
@@ -349,7 +349,7 @@ class FamilyTest extends TestCase
         });
 
         $this->deleteJson('/api/families/family-1', [
-            'confirmName' => '高橋家',
+            'confirmName' => '田中家',
         ], [
             'Authorization' => 'Bearer valid-token',
         ])
@@ -362,7 +362,7 @@ class FamilyTest extends TestCase
     {
         $family = new FamilyData(
             id: 'family-1',
-            name: '高橋家',
+            name: '田中家',
             inviteCode: 'NEW456',
             ownerId: 'firebase-uid-123',
             createdAt: '2026-08-06T00:00:00+00:00',

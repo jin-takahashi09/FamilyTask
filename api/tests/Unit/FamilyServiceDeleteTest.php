@@ -38,7 +38,7 @@ class FamilyServiceDeleteTest extends TestCase
             familyExists: true,
         );
 
-        $service->delete(self::OWNER_ID, self::FAMILY_ID, '高橋家');
+        $service->delete(self::OWNER_ID, self::FAMILY_ID, '田中家');
 
         $this->assertTrue(true);
     }
@@ -51,7 +51,7 @@ class FamilyServiceDeleteTest extends TestCase
             expectedBatchDeletes: 1,
         );
 
-        $service->delete(self::OWNER_ID, self::FAMILY_ID, '高橋家');
+        $service->delete(self::OWNER_ID, self::FAMILY_ID, '田中家');
 
         $this->assertTrue(true);
     }
@@ -68,7 +68,7 @@ class FamilyServiceDeleteTest extends TestCase
             expectedBatchDeletes: 3,
         );
 
-        $service->delete(self::OWNER_ID, self::FAMILY_ID, '高橋家');
+        $service->delete(self::OWNER_ID, self::FAMILY_ID, '田中家');
 
         $this->assertTrue(true);
     }
@@ -82,7 +82,7 @@ class FamilyServiceDeleteTest extends TestCase
             expectFamilyDelete: false,
         );
 
-        $service->delete(self::OWNER_ID, self::FAMILY_ID, '高橋家');
+        $service->delete(self::OWNER_ID, self::FAMILY_ID, '田中家');
 
         $this->assertTrue(true);
     }
@@ -114,7 +114,7 @@ class FamilyServiceDeleteTest extends TestCase
             expectedBatchDeletes: 1,
         );
 
-        $service->delete(self::OWNER_ID, self::FAMILY_ID, '高橋家');
+        $service->delete(self::OWNER_ID, self::FAMILY_ID, '田中家');
 
         $this->assertTrue(true);
     }
@@ -131,7 +131,7 @@ class FamilyServiceDeleteTest extends TestCase
             profiles: $profiles,
         );
 
-        $service->delete(self::OWNER_ID, self::FAMILY_ID, '高橋家');
+        $service->delete(self::OWNER_ID, self::FAMILY_ID, '田中家');
 
         $this->assertTrue(true);
     }
@@ -164,7 +164,7 @@ class FamilyServiceDeleteTest extends TestCase
         $this->expectException(FamilyServiceException::class);
         $this->expectExceptionMessage('この操作はオーナーのみ実行できます');
 
-        $service->delete('member-uid', self::FAMILY_ID, '高橋家');
+        $service->delete('member-uid', self::FAMILY_ID, '田中家');
     }
 
     public function test_delete_returns_service_error_on_firestore_failure(): void
@@ -179,7 +179,7 @@ class FamilyServiceDeleteTest extends TestCase
         );
 
         try {
-            $service->delete(self::OWNER_ID, self::FAMILY_ID, '高橋家');
+            $service->delete(self::OWNER_ID, self::FAMILY_ID, '田中家');
             $this->fail('Expected FamilyServiceException was not thrown');
         } catch (FamilyServiceException $exception) {
             $this->assertSame('グループを削除できませんでした', $exception->getMessage());
@@ -304,7 +304,7 @@ class FamilyServiceDeleteTest extends TestCase
         $familySnapshot->shouldReceive('exists')->andReturn($familyExists);
         if ($familyExists) {
             $familySnapshot->shouldReceive('data')->andReturn([
-                'name' => '高橋家',
+                'name' => '田中家',
                 'inviteCode' => 'ABC123',
                 'ownerId' => self::OWNER_ID,
                 'createdAt' => '2026-08-06T00:00:00+00:00',

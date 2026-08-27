@@ -19,7 +19,7 @@ const STORAGE_KEY = "family-task-app";
 const QA_PASSWORD = process.env.QA_FIREBASE_PASSWORD ?? "qa-password-123456";
 const EMAIL_A = "qa-families-a@example.com";
 const EMAIL_B = "qa-families-b@example.com";
-const QA_FAMILY_NAME = "高橋家";
+const QA_FAMILY_NAME = "田中家";
 
 const results = [];
 
@@ -268,7 +268,7 @@ async function main() {
   const browser = await chromium.launch({ headless: true });
   const page = await browser.newPage();
 
-  let takahashiId = "";
+  let tanakaId = "";
 
   try {
     await clearStorage(page);
@@ -276,12 +276,12 @@ async function main() {
     console.log("\n## 1. User A register + create");
     await registerOrLogin(page, EMAIL_A);
     await completeProfileIfNeeded(page, "Families A");
-    await createFamilyOnSetup(page, "高橋家");
+    await createFamilyOnSetup(page, "田中家");
 
     let state = await getState(page);
-    takahashiId = state.families.find((f) => f.name === "高橋家")?.id ?? "";
-    record("1", "高橋家作成", Boolean(takahashiId));
-    record("1", "activeFamilyId設定", state.session?.activeFamilyId === takahashiId);
+    tanakaId = state.families.find((f) => f.name === "田中家")?.id ?? "";
+    record("1", "田中家作成", Boolean(tanakaId));
+    record("1", "activeFamilyId設定", state.session?.activeFamilyId === tanakaId);
 
     await page.goto(`${BASE}/family`);
     await waitForFamiliesLoaded(page);
@@ -293,14 +293,14 @@ async function main() {
     await logout(page);
     await registerOrLogin(page, EMAIL_B);
     await completeProfileIfNeeded(page, "Families B");
-    await joinViaSetup(page, normalizedCode, takahashiId);
+    await joinViaSetup(page, normalizedCode, tanakaId);
 
     state = await getState(page);
     const userBId = state.session?.userId ?? "";
     record(
       "2",
       "User B参加",
-      state.memberships.some((m) => m.userId === userBId && m.familyId === takahashiId),
+      state.memberships.some((m) => m.userId === userBId && m.familyId === tanakaId),
     );
 
     await page.goto(`${BASE}/family`);
@@ -338,7 +338,7 @@ async function main() {
     await registerOrLogin(page, EMAIL_B);
     await waitForFamiliesLoaded(page, {
       userId: userBId,
-      familyId: takahashiId,
+      familyId: tanakaId,
       activeFamilyId: savedId,
     });
     state = await getState(page);
@@ -358,7 +358,7 @@ async function main() {
     await waitForFamiliesLoaded(page);
     const cleanup = await cleanupRecordedFamily(
       page,
-      takahashiId,
+      tanakaId,
       QA_FAMILY_NAME,
       EMAIL_A,
     );

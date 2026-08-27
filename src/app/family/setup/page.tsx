@@ -129,7 +129,7 @@ function FamilySetupContent() {
                 type="text"
                 value={familyName}
                 onChange={(e) => setFamilyName(e.target.value)}
-                placeholder="例: 高橋家"
+                placeholder="例: 田中家"
                 className="w-full rounded-xl border border-slate-200 px-4 py-3 text-sm font-bold focus:border-emerald-400 focus:outline-none focus:ring-2 focus:ring-emerald-100"
               />
             </label>

@@ -22,7 +22,7 @@ function main() {
 
   const sampleFamily = {
     id: "family-1",
-    name: "高橋家",
+    name: "田中家",
     inviteCode: "ABC123",
     ownerId: "uid-a",
     createdAt: "2026-08-06T00:00:00+00:00",
@@ -32,7 +32,7 @@ function main() {
   };
 
   const group = apiFamilyToGroup(sampleFamily);
-  record("apiFamilyToGroup maps id/name", group.id === "family-1" && group.name === "高橋家");
+  record("apiFamilyToGroup maps id/name", group.id === "family-1" && group.name === "田中家");
 
   const membership = apiFamilyToMembership(sampleFamily, "uid-a");
   record(

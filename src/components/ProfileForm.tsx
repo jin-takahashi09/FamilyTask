@@ -136,7 +136,7 @@ export function ProfileForm({
           type="text"
           value={displayName}
           onChange={(e) => setDisplayName(e.target.value)}
-          placeholder="例: 仁"
+          placeholder="例: 太郎"
           className="w-full rounded-xl border border-slate-200 px-4 py-3 text-sm font-bold focus:border-amber-400 focus:outline-none focus:ring-2 focus:ring-amber-100"
         />
         <p className="mt-1 text-xs text-slate-400">

@@ -37,7 +37,7 @@ class NotificationServiceTest extends TestCase
             requesterId: array_key_exists('requesterId', $overrides)
                 ? $overrides['requesterId']
                 : 'brother',
-            assigneeId: $overrides['assigneeId'] ?? 'jin',
+            assigneeId: $overrides['assigneeId'] ?? 'user-a',
             deadlineTime: $overrides['deadlineTime'] ?? '18:00',
             completed: $overrides['completed'] ?? false,
             alarmEnabled: true,
@@ -62,16 +62,16 @@ class NotificationServiceTest extends TestCase
     {
         $this->assertFalse($this->service()->shouldNotifyAssigned($this->task([
             'requesterId' => null,
-            'assigneeId' => 'jin',
-            'createdBy' => 'jin',
+            'assigneeId' => 'user-a',
+            'createdBy' => 'user-a',
         ])));
     }
 
     public function test_should_not_notify_assigned_when_requester_is_assignee(): void
     {
         $this->assertFalse($this->service()->shouldNotifyAssigned($this->task([
-            'requesterId' => 'jin',
-            'assigneeId' => 'jin',
+            'requesterId' => 'user-a',
+            'assigneeId' => 'user-a',
         ])));
     }
 
@@ -104,7 +104,7 @@ class NotificationServiceTest extends TestCase
         $this->assertFalse($this->service()->shouldNotifyCompleted(
             $this->task([
                 'requesterId' => null,
-                'assigneeId' => 'jin',
+                'assigneeId' => 'user-a',
                 'completed' => true,
             ]),
             false,
@@ -150,12 +150,12 @@ class NotificationServiceTest extends TestCase
 
         $created = $service->notifyTaskDueSoon($this->task([
             'requesterId' => 'brother',
-            'assigneeId' => 'jin',
+            'assigneeId' => 'user-a',
             'deadlineTime' => '18:00',
         ]));
 
         $this->assertNotNull($created);
-        $this->assertSame('jin', $service->lastInput['userId']);
+        $this->assertSame('user-a', $service->lastInput['userId']);
         $this->assertSame('task.due_soon', $service->lastInput['type']);
         $this->assertSame('task.due_soon:task-1:2026-08-21:18:00', $service->lastInput['dedupeKey']);
         $this->assertSame('締切が近づいています', $service->lastInput['title']);
