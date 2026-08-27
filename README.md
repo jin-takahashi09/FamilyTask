@@ -19,6 +19,20 @@ FamilyTask は、家庭内のタスクをメンバー同士で依頼・完了で
 
 ---
 
+## 主な機能
+
+| 機能 | 内容 |
+| --- | --- |
+| 認証 | Firebase Authentication（メール / パスワード） |
+| プロフィール | 表示名・アバター（GCS 署名 URL） |
+| グループ管理 | 作成 / 招待コード参加 / 切替 / 退出 / 削除 / 所有権移譲。複数グループ所属に対応 |
+| カレンダー・タスク | 月表示・日別表示。自分用タスクと家族への依頼、担当者・締切・完了・並び替え |
+| 繰り返しタスク | 日 / 週 / 月 / 年単位。シリーズ削除（単発 / 以降 / 全体）に対応 |
+| 通知 | 依頼・完了・締切約30分前のアプリ内通知。既読 / 全既読 |
+| リアルタイム同期 | Laravel Reverb により、タスク・メンバー・通知を複数端末へ即時反映 |
+
+---
+
 ## 技術スタック
 
 | 区分 | 技術 |
@@ -43,13 +57,69 @@ FamilyTask は、家庭内のタスクをメンバー同士で依頼・完了で
 | 通知 | グループ・メンバー管理 |
 | <img src="docs/screenshots/pc-notifications.png" alt="PC通知" width="100%"> | <img src="docs/screenshots/pc-family-manage.png" alt="PCグループ・メンバー管理" width="100%"> |
 
-### モバイル
+### スマホ
 
 | メイン画面（カレンダー） | タスク作成 |
 | :---: | :---: |
 | <img src="docs/screenshots/sp-home-calendar.png" alt="スマホメイン画面（カレンダー）" width="100%"> | <img src="docs/screenshots/sp-task-create.png" alt="スマホタスク作成" width="100%"> |
 | 通知 | グループ・メンバー管理 |
 | <img src="docs/screenshots/sp-notifications.png" alt="スマホ通知" width="100%"> | <img src="docs/screenshots/sp-family-manage.png" alt="スマホグループ・メンバー管理" width="100%"> |
+
+---
+
+## ローカル起動
+
+### 前提
+
+- Node.js / npm
+- PHP 8.3+ / Composer
+- Firebase プロジェクト（Authentication・Firestore）
+- Firebase Admin SDK のサービスアカウント JSON
+- （任意）GCS バケット — プロフィール画像用
+- （任意）締切接近通知用にスケジューラ実行
+
+### 1. フロントエンド
+
+```bash
+cp .env.local.example .env.local
+# Firebase Web SDK / API URL / Reverb の公開設定を記入
+
+npm install
+npm run dev
+# http://localhost:3000
+```
+
+### 2. API
+
+```bash
+cd api
+cp .env.example .env
+# APP_KEY, GOOGLE_APPLICATION_CREDENTIALS, FIREBASE_STORAGE_BUCKET,
+# REVERB_* などを記入
+
+composer install
+php artisan key:generate
+touch database/database.sqlite
+php artisan migrate
+
+php artisan serve          # http://127.0.0.1:8000
+php artisan reverb:start   # WebSocket :8087
+```
+
+締切接近通知を使う場合:
+
+```bash
+php artisan schedule:work
+```
+
+### 環境変数のポイント
+
+| ファイル | 主な項目 |
+| --- | --- |
+| `.env.local` | `NEXT_PUBLIC_FIREBASE_*` / `NEXT_PUBLIC_API_BASE_URL` / `NEXT_PUBLIC_REVERB_*` |
+| `api/.env` | `GOOGLE_APPLICATION_CREDENTIALS` / `FIREBASE_STORAGE_BUCKET` / `REVERB_*` / `BROADCAST_CONNECTION=reverb` |
+
+`FIREBASE_STORAGE_BUCKET` は GCS のバケット名です（Firebase Web SDK の `*.appspot.com` とは別）。
 
 ---
 
